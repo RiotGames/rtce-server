@@ -1,0 +1,43 @@
+
+import "tbmatch/match.proto";
+
+package tbmatch;
+
+enum PlayerState {
+	PS_MENU = 101;
+	PS_QUEUE = 102;
+	PS_LOBBY = 103;
+}
+
+
+message PlayerSession {
+	optional PlayerState state = 1;
+
+	message ActiveMatch {
+		optional int64 match_id = 1;
+		optional bool spectator = 2;	
+	}
+	optional ActiveMatch active_match = 2;
+
+	message Menu {
+		enum Screen {
+			SUMMARY = 1;
+			PLAYER_STATS = 2;
+			PLAYER_HISTORY = 3;
+			STORE = 4;
+		}
+		optional Screen screen = 1;
+	};
+	optional Menu menu = 101;
+
+	message Queue {
+		optional tbmatch.MatchType match_type = 1;
+		optional int64 start_time = 2;
+	}
+	optional Queue queue = 102;
+
+	message Lobby {
+		optional int64 lobby_id = 1;
+	}
+	optional Lobby lobby = 103;
+}

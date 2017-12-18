@@ -1,0 +1,112 @@
+// History tracking.
+
+package tbadmin;
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/account.proto";
+import "tbmatch/shop.proto";
+import "tbmatch/query.proto";
+
+enum AuditEventType {
+	USER = 1;
+	ACCOUNT = 2;
+	ORDER = 3;
+	QUERY = 4;
+}
+
+message AccountSummary {
+	optional int64 account_id = 1;
+	optional string email = 2;
+	optional string handle = 3;
+}
+
+message AuditAccount {
+	// Account that was affected.
+	optional AccountSummary user = 1;
+	optional tbmatch.LoginStatus login_status = 2;
+}
+
+message AuditOrder {
+	// Order that was affected.
+	optional int64 order_number = 1;
+	// Order status as of the end of this event.
+	optional tbmatch.OrderStatus status = 2;
+}
+
+message AuditEvent {
+	// User who initiated the operation.
+	optional AccountSummary actor = 2;
+
+	// When the operation occurred.
+	optional string event_time = 3;
+
+	// Category of the event.
+	optional AuditEventType event_type = 4;
+
+	// IP address of the initiating session.
+	optional string remote_ip = 5;
+
+	// Hostname of the server that handled the request.
+	optional string server_host = 6;
+
+	// Name of the operation.
+	optional string operation = 9;
+
+	// Parameters of the query, if one was invoked.
+	optional string query = 10;
+
+	// Account that was affected, if any.
+	optional AuditAccount account = 11;
+
+	// Order that was affected, if any.
+	optional AuditOrder order = 12;
+}
+
+// Criteria that can constrain a search for audit events.
+message AuditEventCriteria {
+	optional int64 actor_account_id = 1;
+	optional tbmatch.TimeRange event_time = 2;
+	optional AuditEventType event_type = 3;
+	optional string remote_ip_net = 4; // CIDR netmask
+	optional tbmatch.StringMatch server_host = 5;
+	optional tbmatch.StringMatch operation = 6;
+	optional tbmatch.StringMatch query = 7;
+	optional int64 account_id = 11;
+	optional int64 order_id = 12;
+}
+
+// Options for sorting audit events returned by a query.
+message AuditEventSort {
+	enum SortBy {
+		ACTOR_ID = 1;
+		EVENT_TIME = 2;
+		REMOTE_IP = 3;
+		SERVER_HOST = 4;
+		OPERATION = 5;
+		ACCOUNT_ID = 6;
+		ORDER_ID = 7;
+	}
+
+	optional SortBy first = 1	  [default = EVENT_TIME];
+	optional SortBy second = 2;
+	optional bool descending = 3;
+}
+
+message SearchAuditHistoryRequest {
+	optional AuditEventCriteria criteria = 1;
+	optional AuditEventSort sort = 2;
+	optional int32 offset = 5;
+	optional int32 limit = 6			[default = 25];
+}
+
+message SearchAuditHistoryResult {
+	repeated AuditEvent events = 1;
+	optional bool end_of_data = 2;
+}
+
+service AuditService {
+	// Display a portion of audit log history.
+	rpc SearchAuditHistory (SearchAuditHistoryRequest) returns (SearchAuditHistoryResult) {
+		option (tbrpc.access) = AUDIT;
+	}
+}

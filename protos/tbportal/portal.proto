@@ -1,0 +1,344 @@
+package tbportal;
+
+import "tbmatch/match.proto";
+
+// ************ Configuration ***************
+
+message RedisListenConfig {
+	// Address of the Redis server.
+	optional string redis_host = 1			[default="localhost"];
+	optional int32 redis_port = 2			[default=6379];
+
+	// Redis key to BLPOP for Request messages.
+	optional string listen_key = 3			[default="portal:request"];
+
+	// Requests older than this many seconds are discarded with no response.
+	optional int32 req_expire_sec = 10		[default=30];
+
+	// Response keys are set to EXPIRE in Redis after this many seconds.
+	// Set to 0 to disable expiry.
+	optional int32 resp_expire_sec = 11		[default=300];
+}
+
+message NetConfig {
+	// IP address to return in responses.
+	optional string public_ip = 1			[default="127.0.0.1"];
+
+	// Allocate from port numbers [ port_base, port_base+port_range*instance )
+	optional int32 port_base = 2			[default=42424];
+	optional int32 port_range = 3			[default=4096];
+	optional int32 instance = 4				[default=0];
+}
+
+message StatusConfig {
+	// Prometheus status, 0 to disable.
+	optional int32 port = 1					[default=8118];
+
+	// URI to respond on for metrics.
+	optional string uri = 2					[default="/metrics"];
+
+	// Health check endpoint.
+	optional string health_uri = 3			[default="/healthz"];
+
+	// List of CIDR net ranges to allow.  Empty to allow all.
+	repeated string allow_net = 4;
+}
+
+message GameSessionConfig {
+	// Don't consume requests when session count reaches this limit.
+	// Cannot be higher than port_range / 2.
+	optional int32 max_sessions = 1			[default=2048];
+
+	// Max # of auth failures by either client before closing.
+	optional int32 max_auth_fail = 30		[default=3];
+
+	// Close if either client hasn't sent a handshakes after this long.
+	optional int32 connect_timeout_ms = 31	[default=30000];
+
+	// Should match UTBNetSession::HandshakeTimeoutSecs
+	optional int32 handshake_report_timeout_ms = 37  [default=5500];
+
+	// Close if one client stops sending for too long.
+	// Must be long enough to cover the window between handshake and sync start.
+	// Must be longer than goodbye_timeout_ms.
+	optional int32 inactive_timeout_ms = 32	[default=7000];
+
+	// Close after this long, no matter what.
+	optional int32 active_timeout_ms = 33	[default=14400000];  // 4h = 60 * 60 * 4 * 1000
+
+	// Time between first and second client goodbye, after which
+	// the session is marked as disconnect.
+	optional int32 goodbye_timeout_ms = 34	[default=5000];  // 4h = 60 * 60 * 4 * 1000
+
+	// If other player disconnects within this time, call it double-disconnect.
+	optional int32 double_disconnect_timeout_ms = 35	[default=2250];
+
+	// Time allowed to select new variants
+	optional int32 var_change_timeout_ms = 36 [default=30000];
+
+	// Time to allow after final Goodbye for input reporting stream to terminate.
+	optional int32 input_linger_timeout_ms = 38		[default=10000];
+
+
+    // Max number of handshake reply packets to send.
+	optional int32 max_handshake_replies = 40    		[default = 10];
+
+	// Milliseconds between handshake replies.
+	optional int32 handshake_reply_interval_ms = 41	[default = 200];
+
+	// Max number of variant change reply packets to send.
+	optional int32 max_var_change_replies = 45			[default = 5];
+
+	// Milliseconds between variang change replies.
+	optional int32 var_change_reply_interval_ms = 46 [default = 200];
+
+	// Number of games wins to determine the victor of the match.
+	optional int32 games_to_win = 50 [default = 2];
+}
+
+message ObserverConfig {
+	// Number of frames of input per client report.
+	optional uint32 report_size = 1 		[default = 60];
+	// Number of frames of input per outgoing event bucket.
+	optional uint32 bucket_size = 2			[default = 180];
+}
+
+message PingTestConfig {
+	// Number of packets to bounce
+	optional int32 ping_count = 1			[default = 10];
+
+	// Give waiting up after how many ms?
+	optional int32 wait_timeout_ms = 2		[default = 6500];
+
+	// Send next packet after no valid response for how many ms?
+	optional int32 next_ping_timeout_ms = 3	[default = 500];
+}
+
+// Server reads this proto in text format as a configuration file.
+message ServerConfig {
+	optional RedisListenConfig redis = 1;
+	optional StatusConfig status = 2;
+	optional NetConfig net = 3;
+
+	optional GameSessionConfig session = 10;
+	optional PingTestConfig ping_test = 11;
+
+	optional ObserverConfig observer = 20;
+}
+
+
+
+
+// ********* Request / response protocol **********
+
+message ClientSpec {
+	// Secret keys for authorize client packets.
+	optional fixed64 secret = 1;
+
+	// Client IP address.  Host byte order.
+	// XXX: Not actually used.
+	optional int32 client_ip = 2;
+
+	// The initial character spec for the client.
+	optional tbmatch.CharacterSpec character = 3;
+
+	// The 128-bit shared key used to hash client packets
+	optional bytes shared_key = 4;
+}
+
+message EventQueue {
+	optional string type = 1;
+	optional string id = 2;
+}
+
+// Request a new game session.
+message GameSessionRequest {
+	// Clients of the portal, should be exactly 2.
+	repeated ClientSpec spec = 1;
+
+	// Queue to publish input events.
+	optional EventQueue observer = 2;
+
+	// Allow GameResetRequest to reset options for next game?
+	optional bool allow_reset = 3;
+}
+
+// Enqueued by portal in response to handling an GameSessionResponse.
+message GameSessionResponse {
+	// Public IP address of the portal server.  Host byte order.
+	optional int32 public_ip = 2;
+
+	// Listening ports for each client of the portal, in the same
+	// order as client_ip in the request.  (e.g. client_ip[0]
+	// should connect to public_ip:public_port[0]).
+	repeated int32 public_port = 3;
+}
+
+// Pushed to a Redis list when a game session is over.
+message GameSessionReport {
+	// 128-bit UUID of the session.
+	optional bytes uuid = 1;
+
+	enum Resolution {
+		UNKNOWN = 0;
+
+		GOODBYE = 1;			// All clients closed gracefully.
+		HANDSHAKE_TIMEOUT = 2;	// One or more clients failed to contact the server, or report peer-to-peer status.
+		DISCONNECT = 3;			// Handshake succeeded, but one or both clients stopped sending packets
+								// without saying goodbye.
+	    MAX_LIFETIME = 4;		// Session exceeded the max lifetime.
+
+		HANDSHAKE_FAIL = 5;		// Clients reached the server but not each other.
+	}
+	optional Resolution resolution = 3;
+
+	// Unix timestamp when session was opened.
+	optional int64 open_time = 4;
+	// Unix timestamp when session closed, gracefully or not.
+	optional int64 close_time = 5;
+
+	// If HANDSHAKE_TIMEOUT or DISCONNECT, the list of player slots (0, 1)
+	// who failed to handshake or failed to Goodbye within the time window of the opponent.
+	repeated int32 timeout_slot = 6;
+
+	// If HANDSHAKE_FAIL, the reason given by clients.
+	enum HandshakeStatus {
+		OK = 0;
+		UNREACHABLE = 1;
+		HIGH_PING = 2;
+	}
+	optional HandshakeStatus handshake_status = 10;
+
+	// The ping report (averaged between the two clients).
+	// Present if HANDSHAKE_FAIL && HIGH_PING, GOODBYE, or DISCONNECT
+	message PingReport {
+		optional int32 min_ping_ms = 1;
+		optional int32 avg_ping_ms = 2;
+		optional int32 max_ping_ms = 3;
+	}
+	optional PingReport ping_report = 13;
+
+	optional tbmatch.MatchReport match_report = 9;
+
+	// Stats collected from individual players.
+	message PlayerStat {
+		optional int32 avg_ping_ms = 1;
+		optional int32 avg_fps = 2;
+
+		// Seconds between handshake report and first game report with frame_count > 0.
+		optional int32 level_load_time = 3;
+	}
+	repeated PlayerStat player_stat = 11;
+
+	// If Resolution == DISCONNECT, the reason for the disconnect.
+	enum DisconnectReason {
+		NONE = 0;				// No disconnect (default value)
+		INACTIVITY = 1;			// One or both clients stopped sending packets
+		GOODBYE_TIMEOUT = 2;	// One client sent a goodbye and the other client didn't
+								// send a goodbye in time.
+	}
+	optional DisconnectReason disconnect_reason = 12;
+
+	// Deprecated fields.
+	optional bool __deprecated_outcome_agree = 7;
+	optional bytes __deprecated_outcome = 8;
+
+}
+
+message PingTestRequest {
+	// Client that will be performing the ping.
+	optional ClientSpec spec = 1;
+}
+
+message PingTestResponse {
+	// Public IP address of the portal server running the ping test.  Host byte order.
+	optional int32 public_ip = 2;
+
+	// Listening port of the ping test.
+	optional int32 public_port = 6;
+}
+
+message PingTestReport {
+	enum Resolution {
+		UNKNOWN = 0;
+		SUCCESS = 1;		// Ping test completed successfully.
+		TIMEOUT = 2;		// No responses from client.
+	}
+
+	optional Resolution resolution = 2;
+
+	// Number of pings sent and responses received.
+	optional int32 sent = 10;
+	optional int32 received = 11;
+
+	// Max latency observed in milliseconds.
+	optional int32 max_latency_ms = 12;
+
+	// Average latency observed in milliseconds.
+	optional int32 avg_latency_ms = 13;
+}
+
+message GameResetNotification {
+	optional bytes portal_uuid = 1;
+}
+
+enum RequestType {
+	GAME_SESSION = 10;
+	PING_TEST = 11;
+	GAME_RESET_NOTIFICATION = 12;
+}
+
+// Incoming request; may be either for a session or ping test.
+message Request {
+	optional RequestType type = 1;
+
+	// Caller-specified value that will be provided in future messages
+	// about this request.  This is actually the matchId for game sessions.
+	optional int64 caller_id = 2;
+
+	// Redis channel to publish the request handling response.
+	optional string response_channel = 3;
+
+	// Unix timestamp when request was queued.  Requests too old will be ignored.
+	optional int64 timestamp = 4;
+
+	// List to RPUSH the serialized report when the workflow completes.
+	optional string report_key = 5;
+
+	optional GameSessionRequest game = 10;
+	optional PingTestRequest ping_test = 11;
+	optional GameResetNotification game_reset = 12;
+}
+
+// Response to a request, published to Request.response_channel.
+message Response {
+	optional RequestType type = 1;
+	optional int64 caller_id = 2;
+
+	enum Result {
+		UNKNOWN = 0;
+		SUCCESS = 1;			// Session / ping test active.
+		BAD_REQUEST = 2;		// Request received but not valid.
+		SERVER_BUSY = 3;		// Server was too busy to handle the request.
+		NETWORK_FAIL = 4;		// Failed in network layer (bind).
+	}
+
+	optional Result result = 3;
+
+	// 128-bit uuid of the operation on success.
+	optional bytes op_uuid = 4;
+
+	optional GameSessionResponse game = 10;
+	optional PingTestResponse ping_test = 11;
+}
+
+// Report for action completion.
+message Report {
+	optional RequestType type = 1;
+	optional int64 caller_id = 2;
+	optional bytes op_uuid = 3;
+
+	optional GameSessionReport game = 10;
+	optional PingTestReport ping_test = 11;
+}
+

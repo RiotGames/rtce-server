@@ -1,0 +1,380 @@
+// Service to handle shopping and payments.
+
+package tbmatch;
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/query.proto";
+
+enum OrderStatus {
+	// New order that has not been processed yet.
+	NEW = 1;
+	// Order accepted and is pending settlement.
+	PENDING = 2;
+	// Order payment method failed.
+	FAILED = 3;
+	// Payment has been accepted and goods delivered.
+	// For item orders, this state occurs on approval.
+	// For balance loads, after settlement has been observed.
+	COMPLETE = 4;
+	// Order canceled before payment settled.
+	// Any goods that delivered in advance have been returned.
+	CANCELED = 5;
+	// Item return / refund requested; pending settlement.
+	RETURN_PENDING = 6;
+	// Refund was approved but failed to settle.  Items not returned.
+	RETURN_FAILED = 7;
+	// Refund settled and items returned.
+	RETURNED = 8;
+}
+
+message BillingAddress {
+	// AuthNet customerAddressType
+	optional string first_name = 1;			// 50
+	optional string last_name = 2;			// 50
+	optional string company = 3;			// 50
+	
+	// Obscured on fetch.  Submit obscured value to leave unchanged.
+	optional string address = 4;			// 60
+
+	optional string city = 5;				// 40
+	optional string state = 6;				// 40
+	optional string zip = 7;				// 20
+	optional string country = 8;			// 60
+
+	// Obscured on fetch.  Submit obscured value to leave unchanged.
+	optional string phone_number = 9;		// 255
+}
+
+message PaymentMethod {
+	// Unique ID provided by server. Leave unset during creation.
+	optional int64 method_id = 1;
+
+	// 13-16 digits, no dashes or spaces.
+	// Obscured on fetch.  Submit obscured value to leave unchanged.
+	optional string card_number = 2;
+
+	// YYYY-MM
+	// Obscured on fetch.  Submit obscured value to leave unchanged.
+	optional string card_exp = 3;
+
+	// 3 or 4 digit CCV numeric value.  Not stored in AuthNet, but used
+	// during validation of create stored method, update stored method, and
+	// for transactions with a custom payment method.
+	optional string card_ccv = 4;
+
+	// Observed card issuer type (Visa, Discover, etc).  This field is
+	// ignored for stored payment methods, but may be returned for
+	// processed orders.
+	optional string card_type = 5;
+
+	// The billing address.
+	//
+	// Unset indicates this payment method should use the account's
+	// first and last name, country, and current contact address.
+	// It is an error to leave unset when the contact address has not
+	// yet been stored.
+	optional BillingAddress billing = 10;
+
+	// Payment label, used to easily identify the card to the user.
+	optional string label = 60;
+}
+
+message GetStoredPaymentMethodsResult {
+	// List of all stored payment methods.
+	repeated PaymentMethod method_list = 1;
+
+	// Which method is set as the default.
+	optional int64 default_method_id = 2;
+}
+
+message PaymentMethodId {
+	optional int64 method_id = 1;
+}
+
+// State of a merchant gateway transaction.
+message Transaction {
+	// External payment transaction ID.
+	optional int64 transaction_id = 33;
+	// Payment processor generated authorization code.
+	optional string authorization_code = 34;
+	// Last observed external transaction state.
+	// See http://www.authorize.net/support/ReportingGuide_XML.pdf page 26.
+	optional string transaction_status = 35;
+}
+
+message Funding {
+	enum Source {
+		// None indicated.
+		FS_NONE = 0;
+		// Use available account balance for the order's currency.
+		FS_ACCOUNT_BALANCE = 1;
+		// Use the current default stored payment method.
+		FS_STORED_DEFAULT = 2;
+		// Use the stored payment method identified by stored_method_id.
+		FS_STORED = 3;
+		// Use a custom payment method described by custom_method.
+		FS_CUSTOM = 4;
+	}
+	optional Source source = 1 [default = FS_NONE];
+
+	optional int64 stored_method_id = 2;
+
+	// When using a stored method, use this CVV value for validation.
+	optional string stored_method_card_code = 3;
+
+	optional PaymentMethod custom_method = 4;
+}
+
+message PurchaseOrderItem {
+	// Catalog item ID of the item.
+	optional int64 item_id = 1 [default = -1];
+	// Quantity of this item to be purchased.
+	optional int32 quantity = 10;
+	// Unit price for the item.
+	optional tbrpc.Money unit_price = 11;
+}
+
+message PurchaseOrder {
+	// System-generated order number.  Unset in new requests.
+	optional int64 order_number = 1;
+
+
+	// ***** Required fields *****
+	// These must be set on creation.
+
+	// Currency used for all items and amounts in this order.
+	// For game currency, account balance funding source is required.
+	optional string currency = 2;
+
+	// List of items requested for purchase.  Minimum 1, max 30.
+	repeated PurchaseOrderItem item = 3;
+	// Amount of tax and shipping included in the total.
+	optional tbrpc.Money tax_amount = 4;
+	optional tbrpc.Money ship_amount = 5;
+	// Total amount to charge the customer for this order.
+	// Must be equal to the sum of each item unit price times quantity, plus tax.
+	optional tbrpc.Money total_amount = 6;
+
+	// ***** End required fields *****
+
+	// Status of the order.
+	optional OrderStatus status = 10;
+
+	// Was account balance used?
+	optional bool use_account_balance = 11;
+	// If not drawn from account balance, snapshot of the payment method used.
+	optional PaymentMethod payment_method = 12;
+
+	// Creation and last modification time (RFC3339).
+	optional string create_time = 13;
+	optional string modify_time = 14;
+
+	// Account that created the order.
+	optional int64 account_id = 32;
+
+	optional Transaction payment_transaction = 33;
+	optional Transaction refund_transaction = 34;
+}
+
+message OrderSort {
+	enum SortBy {
+	  ORDER_ID = 1;
+	  STATUS = 2;
+	  CREATE_TIME = 3;
+	  MODIFY_TIME = 4;
+	  TOTAL_AMOUNT = 5;
+	  LAST_NAME = 6;
+	}
+
+	// First sort-by column.
+	optional SortBy first = 1		[default = ORDER_ID];
+
+	// Secondary sort-by column.
+	optional SortBy second = 2;
+
+	// Set to true for highest values first.
+	optional bool descending = 3;
+}
+
+message BalanceEntrySort {
+	enum SortBy {
+	  ORDER_ID = 1;
+	  STATUS = 2;
+	  CREATE_TIME = 3;
+	  ENTRY_AMOUNT = 4;
+	}
+
+	// Sort-by column.
+	optional SortBy sort = 1		[default = ORDER_ID];
+
+	// Set to true for highest values first.
+	optional bool descending = 3;
+}
+
+
+// Summary of an order that affected the account balance
+message BalanceEntry {
+	// Order number.
+	optional int64 order_number = 1;
+
+	// True for balance load events.
+	optional bool balance_load = 2;
+
+	// Amount of the balance change.  Balance loads will be positive,
+	// deductions will be negative.
+	optional tbrpc.Money amount = 3;
+
+	// Status of the order.
+	optional OrderStatus order_status = 4;
+
+	// Creation time of the order.
+	optional string create_time = 5;
+}
+
+
+
+
+// *********************** RPC Request/Response Types **************************
+
+
+// Submit a purchase order.  Provide minimum required fields
+// in PurchaseOrder, and specify a funding source.
+message SubmitPurchaseOrderRequest {
+	optional PurchaseOrder order = 1;
+	optional Funding funding = 20;
+}
+message SubmitPurchaseOrderResult {
+	// Generated order number.
+	optional int64 order_number = 1;
+	// Current status of the order.
+	optional OrderStatus order_status = 2;
+}
+
+// Load a specific purchase order.
+message GetPurchaseOrderRequest {
+	optional int64 order_number = 1;
+}
+
+// Get the account's purchase order history.  Result size limit
+// controlled by server configuration.
+message GetAccountOrderHistoryRequest {
+	// Order sorting
+	optional OrderSort sort = 2;
+
+	// Skip past this many records in the result.
+	optional int32 offset = 5;
+}
+message GetAccountOrderHistoryResult {
+	// Orders that matched the criteria.
+	repeated PurchaseOrder orders = 1;
+	
+	// True when the included results reached the end of the query result.
+	optional bool end_of_data = 2;
+}
+
+message GetAccountBalanceHistoryRequest {
+	// Currency of the balance.  If not specified, will use the
+	// account's default currency.
+	optional string currency = 1;
+
+	// Creation date time range.  Server may impose limit;
+	// will return last 30 days if not set.
+	optional TimeRange create_time = 2;
+
+	// Sort order to sort the orders in short order.
+	optional BalanceEntrySort sort = 4;
+
+	// Skip past this many records in the result.
+	optional int32 offset = 5;
+}
+message GetAccountBalanceHistoryResult {
+	// Currency of the affected balance.
+	optional string currency = 1;
+
+	// Summaries of orders that affected the balance.
+	repeated BalanceEntry entry = 2;
+	
+	// True when the included results reached the end of the query result.
+	optional bool end_of_data = 3;
+}
+
+message GetAccountBalanceRequest {
+	// Currency of the balance to retreive.  If not given,
+	// uses the user's default currency.
+	optional string currency = 1;
+	optional bool include_pending = 2;
+}
+message GetAccountBalanceResult {
+	optional string currency = 1;
+	optional tbrpc.Money balance = 2;
+	optional tbrpc.Money pending = 3;
+}
+
+
+service ShopService {
+	// ********************** Stored Payment Methods *************************
+
+	// Get the current stored payment method.  Returns
+	// msg.shop.paymentMethod.notExist if none has been set.
+	rpc GetStoredPaymentMethods (tbrpc.Empty) returns (GetStoredPaymentMethodsResult) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// Add a stored payment method used to make in-game purchases.
+	// Also makes it the default method.
+	rpc CreateStoredPaymentMethod (PaymentMethod) returns (tbrpc.Empty) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// This overwrites all existing values.  method_id must be set.
+	// Masked values returned by GetStoredPaymentInfo will keep their original values.
+	rpc UpdateStoredPaymentMethod (PaymentMethod) returns (tbrpc.Empty) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// Set the payment method as the default.
+	rpc SetDefaultStoredPaymentMethod (PaymentMethodId) returns (tbrpc.Empty) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// Remove the stored payment method from the account.
+	// If the default method is removed, no method will be marked as
+	// default; the user must elect a new one.
+	rpc RemoveStoredPaymentMethod (PaymentMethodId) returns (tbrpc.Empty) {
+		option (tbrpc.access) = SHOP;
+	}
+
+
+	// ************************** Purchase Orders *****************************
+
+	// Submit a new purchase order.
+	rpc SubmitPurchaseOrder (SubmitPurchaseOrderRequest) returns (SubmitPurchaseOrderResult) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// Get an existing purchase order.  For a non-admin user, the query will be restricted
+	// to those orders belonging to the account.
+	rpc GetPurchaseOrder (GetPurchaseOrderRequest) returns (PurchaseOrder) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// Get order records belonging to the calling account.
+	// Server-enforced result size limit per-call.
+	rpc GetAccountOrderHistory (GetAccountOrderHistoryRequest) returns (GetAccountOrderHistoryResult) {
+		option (tbrpc.access) = SHOP;
+	}
+
+	// Get order records that affected the account balance.
+	// Server-enforced limit on time range and result size.
+	rpc GetAccountBalanceHistory (GetAccountBalanceHistoryRequest) returns (GetAccountBalanceHistoryResult) {
+		option (tbrpc.access) = SHOP;
+	}
+
+
+	// ************************** Account Balance *****************************
+
+	// Get the current account balance.
+	rpc GetAccountBalance(GetAccountBalanceRequest) returns (GetAccountBalanceResult) {
+		option (tbrpc.access) = SHOP;
+	}
+}

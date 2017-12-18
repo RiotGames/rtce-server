@@ -1,0 +1,101 @@
+// Order processing and administration.
+
+package tbadmin;
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/shop.proto";
+import "tbmatch/query.proto";
+
+
+// Optional restrictions for an order search.
+message OrderCriteria {
+	// If set, restrict by owning account.
+	optional int64 account_id = 1;
+
+	// If set, restrict by specific order status.
+	optional tbmatch.OrderStatus order_status = 2;
+
+	// Restrict time range for last modify time.
+	optional tbmatch.TimeRange modify_time = 3;
+
+	// Total amount range.
+	optional tbrpc.Money min_total_amount = 5;
+	optional tbrpc.Money max_total_amount = 6;
+
+	// If set, orders that use account balance (or not).
+	optional bool use_account_balance = 10;
+
+	// Match billing fields.
+	optional tbmatch.StringMatch bill_last_name = 11;
+	optional tbmatch.StringMatch bill_city = 12;
+	optional tbmatch.StringMatch bill_region = 13;
+
+	// Limit to country.
+	optional string bill_country = 14;
+}
+
+
+// *********************** RPC Request/Response Types **************************
+
+// Search for purchase orders.
+message SearchPurchaseOrdersRequest {
+	// Restrictions on the search.
+	optional OrderCriteria criteria = 1;
+
+	// Order sorting
+	optional tbmatch.OrderSort sort = 2;
+
+	// Skip past this many records in the result.
+	optional int32 offset = 5;
+
+	// Max number of results to return.
+	optional int32 limit = 6 			[default = 10];
+}
+message SearchPurchaseOrdersResult {
+	// Orders that matched the criteria.
+	repeated tbmatch.PurchaseOrder orders = 1;
+
+	// True when the included results reached the end of the query result.
+	optional bool end_of_data = 2;
+}
+
+// Reconcile a purchase order state with external
+// payment processing transaction state.
+message SyncPurchaseOrderRequest {
+	optional int64 order_number = 1;
+}
+
+// Cancel a pending purchase order.
+message VoidPurchaseOrderRequest {
+	optional int64 order_number = 1;
+}
+
+// Refund a completed purchase order with settled payment.
+message RefundPurchaseOrderRequest {
+	optional int64 order_number = 1;
+}
+
+
+service ShopAdminService {
+	// Search over all purchase orders.  Admin only.  Returns headers only,
+	// no line items.
+	rpc SearchPurchaseOrders (SearchPurchaseOrdersRequest) returns (SearchPurchaseOrdersResult) {
+		option (tbrpc.access) = ORDER_READ_SYNC;
+	}
+
+	// Bring purchase order up to date with external transaction state.
+	// This operation causes goods to be delivered or revoked.
+	rpc SyncPurchaseOrder (SyncPurchaseOrderRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ORDER_READ_SYNC;
+	}
+
+	// Cancel payment for a purchase order still pending settlement.
+	rpc VoidPurchaseOrder (VoidPurchaseOrderRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ORDER_MANAGER;
+	}
+
+	// Refund payment for a settled order.
+	rpc RefundPurchaseOrder (RefundPurchaseOrderRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ORDER_MANAGER;
+	}
+}

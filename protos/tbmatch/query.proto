@@ -1,0 +1,26 @@
+package tbmatch;
+
+enum MatchPattern {
+	// String must equal the match value exactly.
+	EQUALS = 1;
+
+	// String begins with the match value.
+	PREFIX = 2;
+
+	// String contains the match value.
+	CONTAINS = 3;
+}
+
+// Matches a string value in a search criteria.
+message StringMatch {
+	optional MatchPattern pattern = 1		[default = EQUALS];
+	optional string value = 2;
+}
+
+// Possible limits for a time range.
+message TimeRange {
+	// Beginning of the allowed time range (RFC3339)
+	optional string start = 1;
+	// End of the allowed time range (RFC3339)
+	optional string end = 2;
+}

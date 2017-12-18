@@ -1,0 +1,267 @@
+// Services related to management of user account data.
+
+
+import "tbrpc/tbrpc.proto";
+
+package tbmatch;
+
+// Used to create or update accounts.
+message UserAccountSpec {
+	// E-mail address.  Required.
+	optional string email = 1;
+
+	// Desired password.  Required for CreateUser and Register;
+	// existing accounts must use ResetPassword.
+	optional string password = 2;
+
+	// Username as seen by other users.
+	optional string handle = 3;
+
+	// Given (first) name.  Required.
+	optional string given_name = 4;
+
+	// Family (last) name.  Required.
+	optional string family_name = 5;
+
+	// Salutation, optional.
+	optional string salutation = 6;
+
+	// Date of birth (RFC3339 string).  Required.
+	optional string birth_date = 10;
+
+	// 3-letter code for country of residence.
+	optional string country = 11;
+
+	// Locale for messages, currency format, etc.
+	optional string locale = 12;
+
+	// Secret question message ID.  Required.
+	optional string secret_question_msg = 20;
+
+	// Answer to the secret question.  Required.
+	optional string secret_question_answer = 21;
+}
+
+// User settable options and preferences for the website.
+message UserPrefs {
+	// Allow using account balance for in-game purchases.
+	optional bool balance_purchase_in_game = 1 [default = true];
+
+	// Elect to receive special offers and promotional e-mail.
+	optional bool email_offers = 20 [default = true];
+
+	// Currency last used/selected.
+	optional string default_currency = 30;
+}
+
+// User's contact address fields.
+message ContactAddress {
+	optional string address_1 = 1;
+	optional string address_2 = 2;
+	optional string city = 3;
+	optional string region = 4;
+	optional string zip_code = 5;
+	optional string phone_number = 6;
+}
+
+
+enum LoginStatus {
+	// Account accepts logins with a valid password.
+	ACTIVE = 1;
+
+	// Account is permanently frozen and can only be enabled by an administrator.
+	DISABLED = 3;
+
+	// Account uses an e-mail address that has not yet been confirmed.
+	PENDING_VALIDATION = 4;
+}
+
+// Full details and status of a user account.  Can be returned
+// both for the active session, and for account administration.
+message UserInfo {
+	optional int64 account_id = 1;
+
+	optional UserAccountSpec spec = 2;
+	optional ContactAddress contact_address = 3;
+	optional UserPrefs prefs = 4;
+
+	optional int32 access_bits = 10;
+	optional LoginStatus login_status = 11;
+
+	// When account was created (RFC 3339 string).
+	optional string create_time = 60;
+	// Last time account was modified (RFC 3339 string).
+	optional string modify_time = 61;
+	// Last login time, if any (RFC3339 string).
+	optional string last_login_time = 62;
+}
+
+// Request to change the default locale of the account.
+message SetLocaleRequest {
+	optional string locale = 1;
+}
+
+// Change the password for this account.
+message ChangePasswordRequest {
+	// Provide the correct existing account password.
+	optional string old_password = 1;
+
+	// Provide a new password that adheres to the password requirements.
+	optional string new_password = 2;
+}
+
+// Change the e-mail address for this account.
+message ChangeEmailAddressRequest {
+	optional string new_email_address = 1;
+
+	// Provide 2 forms of authentication.
+	optional string secret_answer = 2;
+	optional string password = 3;
+}
+
+// Redeem an access code to grant the account additional roles or objects.
+message RedeemAccessCodeRequest {
+	optional string code = 1;
+}
+
+// Request to create an account.
+message RegisterUserRequest {
+	optional UserAccountSpec spec = 1;
+	optional UserPrefs prefs = 2;
+
+	// Registration key (if required)
+	optional string registration_key = 10;
+}
+
+// Validate a pending account or e-mail address change.
+message ValidateUserRequest {
+	optional string nonce = 1;
+}
+
+message GetSecretQuestionRequest {
+	optional string email = 1;
+}
+
+message GetSecretQuestionResult {
+	optional string secret_question_msg = 1;
+}
+
+message SendPasswordResetEmailRequest {
+	optional string email = 1;
+	// Secret question message ID for the account.
+	optional string secret_question_msg = 2;
+	// Answer to secret question.
+	optional string secret_question_answer = 3;
+}
+
+message VerifyResetPasswordCodeRequest {
+	// Account to verify.
+	optional string email = 1;
+	// String from the email sent by SendPasswordResetRequest.
+	optional string validation_code = 2;
+}
+
+message ResetPasswordRequest {
+	// Account to reset.
+	optional string email = 1;
+	// String from the email sent by SendPasswordResetRequest.
+	optional string validation_code = 2;
+	// New password to set. Must obey password restrictions.
+	optional string new_password = 3;
+}
+
+message CheckHandleRequest {
+	optional string handle = 1;
+}
+
+
+service AccountService {
+
+	// *************** Public methods ******************
+
+	// Check if a user handle is valid and available for use.
+	rpc CheckHandle (CheckHandleRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Apply for an account.
+	rpc RegisterUser (RegisterUserRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Validate a pending account using the secret key.
+	rpc ValidateUser (ValidateUserRequest) returns (UserInfo) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Get the secret question for sending a password reset code mail.
+	rpc GetSecretQuestion (GetSecretQuestionRequest) returns (GetSecretQuestionResult) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Send a password reset mail with a temporary validation code.
+	// Must provide valid secondary authentication.
+	rpc SendPasswordResetEmail (SendPasswordResetEmailRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Checks a reset code for validity.
+	rpc VerifyResetPasswordCode (VerifyResetPasswordCodeRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Reset the account password using a validation code.
+	rpc ResetPassword (ResetPasswordRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// *************** Logged-in Users ******************
+	
+	// Fetch basic account information 
+	rpc GetUserInfo (tbrpc.Empty) returns (UserInfo) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// For unverified accounts, send a new validation e-mail.
+	rpc ResendValidationEmail (tbrpc.Empty) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Change the user's locale.  Fails of the given
+	// locale string is not supported.
+	rpc SetLocale (SetLocaleRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Update the user's contact address fields.  A new account has
+	// no contact address; but once set it cannot be removed.
+	rpc SetContactAddress(ContactAddress) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Fetch current account preferences.
+	rpc GetUserPrefs (tbrpc.Empty) returns (UserPrefs) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Update account preferences.  Only set fields will
+	// be updated.
+	rpc SetUserPrefs (UserPrefs) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Update the account password.
+	rpc ChangePassword(ChangePasswordRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Update the account login email address.
+	rpc ChangeEmailAddress(ChangeEmailAddressRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Apply a registration or access code.
+	rpc RedeemAccessCode(RedeemAccessCodeRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+}

@@ -1,0 +1,228 @@
+// RPC transport layer encapsulation.
+
+import "google/protobuf/descriptor.proto";
+
+package tbrpc;
+
+enum Status {
+	// The request succeeded.
+	S_SUCCESS 		= 0;
+
+	// The request could not succeed because it was invalid.
+	S_ERROR 		= 1;
+
+	// The request was valid but the server encountered a problem.
+	S_SERVER_ERROR	= 2;
+
+	// The request took too long to complete.
+	S_TIMEOUT 		= 3;
+
+	// An error occurred at the protocol layer or below.
+	S_TRANSPORT_ERROR = 4;
+
+	// Nothing is (yet) known about this request.
+	S_UNKNOWN		= 128;
+}
+
+// Types of access control for RPC methods.
+enum Access {
+	// Anonymous; allowed for unauthenticated sessions.
+	ANON			= 0;
+
+	// Access that merely requires an authenticated session.
+	LOGIN			= 1;
+
+	// Access all user-facing shop methods; manage stored payments,
+	// place orders, check status of orders.
+	SHOP			= 10;
+
+	// Able to login and play the RisingThunder game client and call match-making functions.
+	MATCH			= 11;
+
+	// Allowed to use the RisingThunder.com user forum.
+	RT_FORUM_USER	= 12;
+
+	// Invoke stats reporting queries.
+	STATS_READ		= 18;
+
+	// Server account that can read global metadata.
+	APP				= 20;
+
+	// Create, modify, and search user accounts.
+	USER_MGMT		= 21;
+
+	// Search and sync purchase orders.
+	ORDER_READ_SYNC	= 22;
+
+	// Void and refund purchase orders.
+	ORDER_MANAGER	= 23;
+
+	// View the audit log.
+	AUDIT			= 24;
+
+	// RT Forum administrator
+	RT_FORUM_MGMT	= 25;
+
+	// RT Forum moderator
+	RT_FORUM_MOD	= 26;
+
+	// Read & write run-time config state.
+	CONFIG_READ		= 27;
+	CONFIG_WRITE	= 28;
+
+	// Super-user who is granted all rights.
+	SUPER			= 30;
+}
+
+enum SessionType {
+	// Default session type, used for web sessions.
+	DEFAULT = 0;
+
+	// Rising Thunder game session.
+	GAME_RT = 100;
+}
+
+extend google.protobuf.MethodOptions {
+	// Role required to invoke.
+	optional Access access = 51001;
+
+	// If true, an invocation doesn't count as user activity (e.g. GetEvent)
+	optional bool no_op = 51002;
+
+	// If set, session type required to invoke.
+	optional SessionType session = 51003;
+}
+
+extend google.protobuf.MessageOptions {
+	// Iff non-empty, identifies message as a redis/lua config type, for which
+	// redis/lua config stubs will be generated.
+	// The value given will be the type name used in Lua, and also forms
+	// the redis key prefix for the config fields as "<lua_config>:config:"
+	optional string lua_config = 51101;
+}
+
+extend google.protobuf.FieldOptions {
+	// For lua message types, override the default lua name to use.
+	optional string lua = 51201;
+}
+
+// Parameters to a message.  Using a message type
+// for each primitive works around protobuf-net's limitation
+// of not recording unset primitives.
+message MsgParam {
+	message Str {
+	optional string value = 1;
+	}
+	message Int {
+	optional int32 value = 1;
+	}
+	message Float {
+	optional float value = 1;
+	}
+	optional Str str = 1;
+	optional Int int = 2;
+	optional Float flt = 3;
+}
+
+// A localized message and optional positional values.
+message LocMsg {
+	optional string id = 1;
+	repeated MsgParam param = 2;
+}
+
+message Result {
+	// Result code of the invocation
+	optional Status result = 1 [default = S_UNKNOWN];
+
+	// Optional result message, usually set when result != S_SUCCESS.
+	optional LocMsg msg = 4;
+
+	// Serialized message result of invoked method.
+	optional bytes content = 10;
+
+
+	// deprecated fields
+	optional string deprecated_msg_id = 2;
+	repeated MsgParam deprecated_msg_params = 3;
+}
+
+// Used for rpc methods that take no arguments or return
+// no result content.  Since all empty messages serialize
+// the same, we can create types as needed when extending an
+// existing method.
+message Empty {
+}
+
+// A monetary value.  We can't represent these with float values
+// due to rounding errors for values like 0.1.  Another option is
+// representing everything in cents, but that can lead to bugs.
+// This is the most unambiguous wire format.
+//
+// SIGN: When the value is negative, both fields express the sign.
+//	 For example, -$2.25 would be (-2), (-25).
+//	 The correctly signed value in cents can always be computed by:
+//
+//   (Whole * 100) + Cents
+//
+// The value is invalid if signs differ, or Cents is out of range.
+//
+// Note also that the value cannot be interpreted without a
+// relevant currency, which is always taken from context.
+message Money {
+   // Amount of whole units of currency.
+   optional int64 whole = 1;
+
+   // Amount of 1/100 units of currency.
+   optional int32 cents = 2;
+}
+
+
+
+// *************** Load Balancer Client ******************
+
+message RpcClientConfig {
+	// Limit on idle connections per Match API server.
+	optional int32 max_idle_conns_per_host = 1		[default = 16];
+
+	// How long to wait for RPCs to complete.
+	optional int32 rpc_timeout_ms = 2			[default = 5000];
+}
+
+
+message LBTargetGCEBackendService {
+	// Name of the service account to get an access token for.
+	optional string service_account = 1			[default = "default"];
+
+	// HTTPS proxy URL to use for API calls.
+	optional string api_proxy_url = 2;
+
+	// Name of Google project.
+	optional string project = 3					[default = "radiant-cloud"];
+
+	// Name of the backend service to discover healthy instances in.
+	optional string backend_service = 4;
+
+	// How often to poll (fuzzed by 10%).
+	optional int32 poll_interval_secs = 10		[default = 30];
+
+	// URI prefix for requests to this endpoint.
+	optional string endpoint_uri = 11			[default = "/rpc"];
+}
+
+
+message LBClientConfig {
+	// Backend service to use for API discovery monitor.
+	optional LBTargetGCEBackendService discovery = 1;
+
+	// Static list of hosts to connect to.  Only one of [backend_service, host*] may be specified.
+	repeated string host = 2;
+
+	// Per-host connection pool settings.
+	optional RpcClientConfig client = 4;
+
+	// After failure to invoke or ping a backend, how long before we will try again.
+	optional int32 failure_retry_sec = 10		[default = 10];
+
+	// Ping a backend before invoking if it hasn't been used in this long.
+	optional int32 idle_ping_sec = 11			[default = 60];
+}

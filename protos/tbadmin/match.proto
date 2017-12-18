@@ -1,0 +1,198 @@
+package tbadmin;
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/match.proto";
+import "tbmatch/lobby.proto";
+
+message QueueUser {
+	optional int64 account_id = 1;
+	optional string handle = 2;
+	optional string build_version = 3;
+
+	optional tbmatch.NetworkAddr network = 10;
+	optional tbmatch.CharacterSpec character = 11;
+
+	optional double wait_time = 20;
+	optional double rating = 21;
+	optional int64 last_opp_id = 23;
+	optional string last_opp_handle = 24;
+	optional string continent_code = 25;
+	optional double latitude = 26;
+	optional double longitude = 27;
+
+	optional int32 echelon = 30;
+	optional int32 tier = 31;
+	optional int32 points = 32;
+}
+
+message LobbySummary {
+	optional tbmatch.Lobby lobby = 1;
+
+	optional string build_version = 10;
+	optional int32 members = 11;
+
+	optional int64 create_time_unix 		= 31;
+	optional int64 last_active_time_unix 	= 32;
+
+	optional double __deprecated_age = 21;
+	optional double __deprecated_idle = 22;
+}
+
+message ActiveMatch {
+	optional int64 match_id = 1;
+	optional tbmatch.GameDescriptor desc = 2;
+	optional int64 start_time_unix = 3;
+}
+
+message RecentMatch {
+	optional int64 match_id = 1;
+	optional int64 start_time_unix = 2;
+	optional double duration_sec = 3;
+	optional bool rated = 4;
+	optional string build_version = 5;
+	optional string log = 6;
+	optional bool abandoned = 7;
+
+	message Player {
+		optional int64 account_id = 1;
+		optional string handle = 2;
+		optional string game_char = 3;
+		optional bool winner = 4;
+		optional bool disconnect = 5;
+	}
+	repeated Player player = 10;
+
+	message Game {
+		optional tbmatch.GameConfig game = 1;
+		optional int32 win_slot = 2;
+		optional int64 start_time_unix = 3;
+		optional double duration_sec = 4;
+	}
+	repeated Game game = 20;
+}
+
+message MatchPlayer {
+	optional int64 account_id = 1;
+	optional string handle = 2;
+	optional int64 create_time_unix = 3;
+	optional int64 modify_time_unix = 4;
+
+	message ServerStats {
+		optional int32 attempts = 1;
+		optional int32 complete = 2;
+		optional int32 disconnects = 3;
+	}
+	optional ServerStats server_stats = 10;
+
+	optional tbmatch.PlayerStats player_stats = 11;
+
+	message Rating {
+		optional tbmatch.MatchType type = 1;
+		optional double rating = 2;
+		optional double deviation = 3;
+		optional double volatility = 4;
+
+		optional double session_rating = 5;
+
+		optional int64 last_rating_time_unix = 10;
+	}
+	repeated Rating rating = 20;
+}
+
+message GetMatchQueueUsersRequest {
+	optional tbmatch.MatchType queue = 1;
+}
+
+message GetMatchQueueUsersResult {
+	repeated QueueUser user = 1;
+}
+
+message GetLobbiesRequest {
+	optional int32 limit = 2			[default = 200];
+}
+message GetLobbiesResult {
+	repeated LobbySummary lobby = 1;
+}
+message GetLobbyRequest {
+	optional int64 lobby_id = 1;
+}
+message GetLobbyResult {
+	optional LobbySummary lobby = 1;
+}
+
+message GetActiveMatchesRequest {
+	optional tbmatch.MatchType match_type = 1 [ default = MT_RANKED];
+	optional int32 limit = 2			[default = 200];
+}
+message GetActiveMatchesResult {
+	repeated ActiveMatch match = 1;
+}
+
+message GetActiveMatchRequest {
+	optional tbmatch.MatchType match_type = 1 [ default = MT_RANKED];
+	optional int64 match_id = 2;
+}
+message GetActiveMatchResult {
+	optional ActiveMatch match = 1;
+}
+
+message GetRecentMatchesRequest {
+	optional tbmatch.MatchType match_type = 1;
+	optional int32 limit = 2			[ default = 200 ];
+
+	// Limit results to those with the given player involved.
+	optional int64 player_account_id = 3;
+}
+message GetRecentMatchesResult {
+	repeated RecentMatch match = 1;
+}
+
+message GetMatchDetailRequest {
+	optional int64 match_id = 1;
+}
+message GetMatchDetailResult {
+	optional RecentMatch match = 1;
+}
+
+message GetPlayerDetailRequest {
+	optional int64 account_id = 1;
+}
+message GetPlayerDetailResult {
+	optional MatchPlayer player = 1;
+}
+
+
+service MatchAdminService {
+	rpc GetMatchQueueUsers(GetMatchQueueUsersRequest) returns (GetMatchQueueUsersResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetLobbies(GetLobbiesRequest) returns (GetLobbiesResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetLobby(GetLobbyRequest) returns (GetLobbyResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetActiveMatches(GetActiveMatchesRequest) returns (GetActiveMatchesResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetActiveMatch(GetActiveMatchRequest) returns (GetActiveMatchResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetRecentMatches(GetRecentMatchesRequest) returns (GetRecentMatchesResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetMatchDetail(GetMatchDetailRequest) returns (GetMatchDetailResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc GetPlayerDetail(GetPlayerDetailRequest) returns (GetPlayerDetailResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+}
+

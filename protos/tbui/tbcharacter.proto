@@ -1,0 +1,202 @@
+package tbui;
+
+message UIVariantSpec {
+   optional int32 id = 1;
+
+   optional string name = 2;
+
+   optional string description = 3;
+}
+
+message UISpecialsSpec {
+   repeated UIVariantSpec variants = 2;  
+}
+
+message UIMechSpec {
+   optional string name = 1;  
+}
+
+message UIPilotSpec {
+   optional string name = 1;
+
+   optional int32 age = 2;
+
+   optional string origin = 3;
+}
+
+message UICharacterSpec {
+   optional string type_name = 1;
+
+   optional UIMechSpec mech = 2;
+
+   optional UIPilotSpec pilot = 3;
+
+   repeated UISpecialsSpec specials = 4;
+   
+   optional int32 ui_order = 5;
+}
+
+message UICharacterData {
+   repeated UICharacterSpec char_specs = 1;
+
+   // When starting UI in editor, want to initialize to the currently selected character and opponent.
+   optional string selected_char = 2;
+
+   optional string selected_opp = 3;
+}
+
+enum WindowResolutionType {
+   WRT_FULLSCREEN = 1;
+
+   WRT_FULLSCREEN_WINDOWED = 2;
+
+   WRT_WINDOWED = 3;
+}
+
+enum GraphicsQualityType {
+   // Special level for aggregator qualities (most notably "Overall Quality")
+   GQT_CUSTOM = 0;
+
+   GQT_LOW = 1;
+
+   GQT_MEDIUM = 2;
+
+   GQT_HIGH = 3;
+
+   GQT_EPIC = 4;
+}
+
+message GraphicsSettings {
+   optional bool vsync = 1;
+
+   optional GraphicsQualityType overall_quality = 2;
+
+   optional GraphicsQualityType resolution_quality = 3;
+
+   optional GraphicsQualityType anti_aliasing_quality = 4;
+
+   optional GraphicsQualityType shadow_quality = 5;
+
+   optional GraphicsQualityType post_process_quality = 6;
+
+   optional GraphicsQualityType texture_quality = 7;
+
+   optional GraphicsQualityType effects_quality = 8;
+}
+
+message Resolution {
+   optional int32 width = 1;
+
+   optional int32 height = 2;
+}
+
+message ResolutionSettings {
+   repeated Resolution available_resolutions = 1;
+
+   // Index into available resolutions.
+   optional int32 current_resolution = 2;
+
+   optional WindowResolutionType type = 3;
+
+}
+
+message GraphicsSpec {
+   optional ResolutionSettings resolution = 1;
+
+   optional GraphicsSettings graphics = 2;
+}
+
+// Encapsulates all persisted local preferences that are account-specific
+// (as opposed to machine-specific)
+message LocalPlayerPreferences {
+   optional KeyBindingConfig key_bindings = 1;
+
+   optional int32 skill_estimate = 2;
+}
+
+message KeyBinding {
+   // Multiple keys can be bound to one action (for now limited to 2).
+   repeated string bound_keys = 2;
+}
+
+message KeyBindingSet {
+   // The id of the binding is its position in the array.
+   repeated KeyBinding bindings = 1;
+}
+
+message KeyBindingConfig {
+   // A set of bindings for every type of input (controller, keyboard)
+   repeated KeyBindingSet input_binding = 1;
+}
+
+// Settings the UI always loads at startup.
+message GlobalSettings {
+   optional string server_url = 1;
+   optional int32 listen_port = 2;
+   optional string build_version = 3;
+   optional bool auto_play = 4;
+   optional int32 inactive_timeout_sec = 5;
+}
+
+message NetworkSpec {
+   // Bind ports and set up P2P network access automatically.
+   optional bool auto_conf = 1;
+
+   // If not auto-configuring, the local port to bind to.
+   optional int32 local_port = 2;
+
+   // If not auto-configuring, the external port to advertise to other players.
+   optional int32 external_port = 3;
+}
+
+// Volume integers range from 0 to volume_max
+message SoundSpec {
+   optional int32 music_volume = 1;
+
+   optional int32 vo_volume = 2;
+
+   optional int32 fx_volume = 3;
+
+   optional int32 volume_max = 4;
+}
+
+message GameOutcome {
+   // Did local player win the game?
+   optional bool winner = 1;
+
+   // Did local player lose the game?
+   optional bool loser = 2;
+
+   // Was the gamea  draw?
+   optional bool draw = 3;
+
+   // How many games has p1 won?
+   optional int32 p1_won = 4;
+
+   // How many games has p2 won?
+   optional int32 p2_won = 5;
+}
+
+message DebugSpec {
+   // Log GGPO activity
+   optional bool ggpo_log = 1;
+}
+
+// Make sure the values are the same as ERoundResult in TBGameState
+enum RoundResultType {
+   RRT_UNPLAYED = 0;
+   RRT_NORMAL = 1;
+   RRT_SUPER = 2;
+   RRT_CHIP = 3;
+   RRT_TIME = 4;
+   RRT_DRAW = 5; // Double KO
+   RRT_PERFECT = 6;
+}
+
+message PlayerRoundHistory {
+   repeated RoundResultType history = 1;
+}
+
+message RoundHistory {
+   repeated PlayerRoundHistory player_history = 1;
+}

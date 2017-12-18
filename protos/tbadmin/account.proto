@@ -1,0 +1,238 @@
+// Services related to management of user account data.
+
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/account.proto";
+import "tbmatch/query.proto";
+
+package tbadmin;
+
+// Admin user lookups.
+message LookupUserRequest {
+	// Find user account ID.
+	optional int64 account_id = 1;
+	// Find user by e-mail address.
+	optional string email = 2;
+	// Find user by player handle.
+	optional string handle = 3;
+}
+
+// How to match a user search.
+message UserCriteria {
+	optional tbmatch.StringMatch email = 1;
+	optional tbmatch.StringMatch handle = 2;
+	optional tbmatch.StringMatch given_name = 3;
+	optional tbmatch.StringMatch family_name = 4;
+
+	optional string country_code = 5;
+
+	optional tbmatch.TimeRange create_time = 10;
+	optional tbmatch.TimeRange modify_time = 11;
+	optional tbmatch.TimeRange last_login_time = 12;
+}
+
+// How to order a user search.
+message UserSort {
+	enum SortBy {
+		ACCOUNT_ID = 1;
+		EMAIL = 2;
+		HANDLE = 3;
+		GIVEN_NAME = 4;
+		FAMILY_NAME = 5;
+		CREATE_TIME = 6;
+		MODIFY_TIME = 7;
+		LAST_LOGIN_TIME = 8;
+	}
+
+	optional SortBy first = 1			[default = ACCOUNT_ID];
+	optional SortBy second = 2;
+
+	optional bool descending = 3;
+}
+
+message HandleChange {
+	// Unix timestamp of the handle change time.
+	optional int64 time = 1;
+	// Old handle.
+	optional string old = 2;
+	// New handle.
+	optional string new = 3;
+}
+
+// Admin user search requests.
+message SearchUsersRequest {
+	optional UserCriteria criteria = 1;
+	optional UserSort sort = 2;
+
+	// Pagination.
+	optional int32 offset = 5;
+	optional int32 limit = 6			[default = 10];
+}
+message SearchUsersResult {
+	// Results do not include preferences or contact address.
+	repeated tbmatch.UserInfo users = 1;
+	optional bool end_of_data = 2;
+}
+
+// Admin account changes.
+message UpdateUserRequest {
+	optional int64 account_id = 1;
+
+	// Changes to account record.
+	optional tbmatch.UserAccountSpec spec = 2;
+
+	// Changes to preferences.
+	optional tbmatch.UserPrefs prefs = 3;
+}
+
+// Create a new user.
+message CreateUserRequest {
+	// New account owner, identifiers and authentication.
+	optional tbmatch.UserAccountSpec spec = 1;
+	// Optional preferences.
+	optional tbmatch.UserPrefs prefs = 2;
+	
+	// Permission bits for the new account.  Can't be more
+	// permissive than the invoking account.
+	optional int32 access = 10;
+
+	// Login state of the account.
+	optional tbmatch.LoginStatus login_status = 11		[default = DISABLED];
+
+}
+message CreateUserResult {
+	optional int64 account_id = 1;
+}
+
+// Update the user's contact address.
+message SetUserContactAddressRequest {
+	optional int64 account_id = 1;
+	optional tbmatch.ContactAddress contact_address = 2;
+}
+
+// Change permission bits for a user account.
+message SetUserAccessRequest {
+	optional int64 account_id = 1;
+
+	// Roles to grant.
+	optional int32 grant = 3;
+
+	// Roles to revoke.
+	optional int32 revoke = 4;
+
+	optional int32 __deprecated_access = 2;
+}
+
+// Set the login state of an account.
+message SetUserLoginStatusRequest {
+	optional int64 account_id = 1;
+	optional tbmatch.LoginStatus login_status = 2;
+}
+
+// Set the account password to the one given.
+message ResetUserPasswordRequest {
+	optional int64 account_id = 1;
+	optional string password = 2;
+}
+
+message NukeHandleRequest {
+	// Account with the offensive handle.
+	optional int64 account_id = 1;
+}
+message NukeHandleResult {
+	optional int64 account_id = 1;
+	// New handle assigned to the account.
+	optional string new_handle = 2;
+}
+
+message GetHandleHistoryRequest {
+	optional int64 account_id = 1;
+}
+message GetHandleHistoryResult {
+	optional int64 account_id = 1;
+	repeated HandleChange change = 2;
+}
+
+message SendUserEmailNotificationRequest {
+	enum NotifyType {
+		// "Welcome to the Rising Thunder alpha!"
+		ALPHA_ACCESS = 1;
+
+		// Access codes to give out.
+		FRIEND_CODES = 2;
+	}
+
+	// Target account.  Must have a validated e-mail.
+	optional int64 account_id = 1;
+
+	optional NotifyType type = 2;
+
+	message FriendCodes {
+		// How many codes to generate and include in the mail.
+		optional int32 code_count = 1		[default = 0];
+		// Access flags the codes will bestow.
+		optional int32 access_flags = 2		[default = 0];
+	}
+	optional FriendCodes friend_codes = 12;
+}
+
+
+service AccountAdminService {
+	// Look up a user account by primary key.
+	rpc LookupUser (LookupUserRequest) returns (tbmatch.UserInfo) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Find user accounts.
+	rpc SearchUsers (SearchUsersRequest) returns (SearchUsersResult) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Create a new user account.
+	rpc CreateUser (CreateUserRequest) returns (CreateUserResult) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Modify a user's primary fields and/or preferences.
+	rpc UpdateUser (UpdateUserRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Set or modify a user's contact address.
+	rpc SetUserContactAddress(SetUserContactAddressRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Modify a user's access permissions.
+	rpc SetUserAccess (SetUserAccessRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Assign the user an explicit login status.
+	rpc SetUserLoginStatus (SetUserLoginStatusRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Reset the user's password to the one provided.
+	// Also resets any temporary abuse lock on the account.
+	rpc ResetUserPassword (ResetUserPasswordRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Rename an offensive handle with an automatically generated one,
+	// and send a notification e-mail.
+	rpc NukeHandle (NukeHandleRequest) returns (NukeHandleResult) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Get the history of handle changes for an account.
+	rpc GetHandleHistory (GetHandleHistoryRequest) returns (GetHandleHistoryResult) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+
+	// Send a system-generated notification e-mail to the address on file.
+	// Account must have a validated e-mail address.
+	rpc SendUserEmailNotification (SendUserEmailNotificationRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = USER_MGMT;
+	}
+}

@@ -1,0 +1,355 @@
+
+package tbmatch;
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/match.proto";
+import "tbmatch/lobby.proto";
+
+// The event filter has been updated; any pending
+// GetEvent call should reload the filter.
+// Target: q_user_N
+message FilterChangedEvent {
+}
+
+// Progress updates from the GetMatch method.
+// Target: q_user_N
+message WaitMatchProgressEvent {
+	enum Status {
+		// Waiting for an available match.
+		WAITING = 1;
+
+		// Gave up waiting.
+		TIMEOUT = 2;
+
+		// Match found.
+		MATCH = 3;
+
+		// Request canceled by user.
+		CANCEL = 4;
+
+		// Failed to enter queue.  A ping test must be performed before
+		// re-queuing for a match.
+		PING_TEST_REQUIRED = 5;
+
+		// The build version is not allowed to enter the queue.
+		// A client update is required.
+		DENY_VERSION = 6;
+
+		// The match-making server is down for maintenance.  Try again later.
+		SERVER_MAINTENANCE = 7;
+	}
+
+	optional Status status = 1;
+
+	// The ID of the newly created match.
+	optional int64 match_id = 2;
+
+	// Game config to run for game 0 (when status == MATCH).
+	optional GameConfig config = 3;
+
+	// Player slot and connection for game 0 (when status == MATCH).
+	optional GameEndpointConfig endpoint = 4;
+
+	// Some extra stats for a WAITING progress.
+	optional int32 users_waiting = 21;
+
+
+	// DEPRECATED FIELDS
+	optional int32 __deprecated_users_online = 20;
+}
+
+// A new match was created.
+// Target queue: match
+message MatchCreatedEvent {
+	optional GameConfig game_config = 3;
+
+	optional int64 __deprecated_match_id = 1;
+	repeated int64 __deprecated_user_id = 2;
+}
+
+// Observed match has successfully established player connection
+// and loading has begun.
+// Target queue: match
+message MatchConnectedEvent {
+	optional int64 match_id = 1;
+}
+
+// The next game is beginning in this match.
+// Target queue: match
+message GameBeginEvent {
+	optional int64 match_id = 1;
+	optional NextGameConfig next_game = 2;
+
+      // Populated from the sequenceId field in Redis under the match's key.
+      // Should be used by the client, if present, to determine whether to process this event.
+	optional int32 sequence_id = 3 [default = -1];
+}
+
+// Batch of compressed inputs.
+// Target queue: match
+message GameInputEvent {
+	optional int64 match_id = 1;
+
+	// First frame number of input stored in bits.
+	optional int32 start_frame = 2;
+
+	// Number of bits to read from bits.
+	optional int32 num_bits = 3;
+
+	// Encoded frame inputs.
+	optional bytes bits = 4;
+
+	// True if this is the last set of inputs for a game.
+	optional bool final = 5;
+}
+
+// Game reached a valid outcome.
+// Target queue: match
+message GameOverEvent {
+	optional int64 match_id = 1;
+	optional GameReport report = 2;
+	optional int32 sequence_id = 3 [default = -1];
+}
+
+// A match user was playing has been abandoned, because players sent conflicting goodbye packets
+// (either intentionally or because the p2p connection got broken)
+// Stop playing the match and exit back to the menu.
+// Target queue: user
+message MatchAbandonedEvent {
+	optional int64 match_id = 1;
+}
+
+// Observed match has completed.
+// Target queue: match
+message MatchOverEvent {
+	optional int64 match_id = 1;
+
+	enum Status {
+		// Match did not complete due to a server error, desync
+		// or a network problem that affected both players.
+		ABANDONED = 1;
+
+		// Match ended because one player disconnected.
+		DISCONNECT = 2;
+
+		// Match ended with a valid outcome.
+		VALID = 3;
+	}
+
+	optional Status status = 2;
+
+	// if status==VALID, player slot that won if any.
+	optional int32 win_slot = 3;
+
+	// if status==VALID, true iff the result was a draw.
+	optional bool draw = 4;
+}
+
+
+// Match completed that user participated in.  Notify about what the server recorded.
+// This event could arrive anywhere along the game sequence, since it may also indicate
+// early disconnection of the opponent.
+message MatchOutcomeEvent {
+	// What happened in the match.
+	optional MatchResult result = 1;
+	// Spoils of war.
+	optional MatchExperience exp = 2;
+	// Updates to user stats.
+	optional PlayerStats stats_update = 3;
+}
+
+// User failed to handshake during a match, check network settings.
+message UserCheckNetworkEvent {
+}
+
+// The session is being forcibly closed.
+// Could be due to login on another session, terminated by
+// an administrator.
+message UserSessionClosedEvent {
+	optional string reason_msg_id = 1;
+}
+
+// The requested ping test has completed - now eligible to join a matching queue.
+message PingTestCompleteEvent {
+	// Average measured round-trip time.
+	optional int32 avg_rtt_ms = 1;
+
+	// Max round-trip time.
+	optional int32 max_rtt_ms = 2;
+
+	// Fraction of packets lost.
+	optional float loss_ratio = 3;
+
+	// Was the ping successful or not?
+	optional bool success = 4;
+}
+
+
+// *************************** Lobby Events **********************************
+
+// Player has now joined a lobby.
+message LobbyJoinEvent {
+	// Current state of the joined lobby.
+	optional Lobby lobby = 1;
+}
+
+// Player has left the current lobby, either voluntarily, because they were
+// banned, or because the last owner left.
+message LobbyLeaveEvent {
+	optional int64 lobby_id = 1;
+
+	enum Reason {
+		// Left lobby voluntarily.
+		LEFT = 1;
+
+		// Banned from the lobby.
+		BANNED = 2;
+
+		// Removed by owner, but not banned permanently
+		REMOVED = 3;
+	}
+	optional Reason reason = 2;
+}
+
+
+// Sent to current members about changes in the lobby state.
+// Notifies users joining and leaving, change of ready states,
+// queue order, and other lobby states.  Any fields not set
+// should be left at their previous state.
+message LobbyUpdateEvent {
+	optional int64 lobby_id = 1;
+
+	// Members added or whose state changed.
+	repeated LobbyMember update = 2;
+
+	// Members who left.
+	repeated int64 removed = 3;
+
+	// Current state of the lobby.
+	optional LobbyState state = 4;
+
+	// For state == LS_MATCH, GameConfig that started the running match.
+	optional GameConfig game_config = 5;
+
+	// Order of queued members by account_id.
+	repeated int64 queue = 6;
+
+	// Options for games generated by this lobby.
+	optional GameOptions options = 7;
+}
+
+
+// An idle lobby has two ready players.
+// New match started, and the recipient is involved.
+message LobbyMatchStartEvent {
+	optional int64 lobby_id = 1;
+
+	// The ID of the newly created match.
+	optional int64 match_id = 2;
+
+	// Game config for first game of the match.
+	optional GameConfig config = 3;
+
+	// Player slot and connection.
+	optional GameEndpointConfig endpoint = 4;
+}
+
+
+
+// Event container union.  Returned in GetEvent.
+message Event {
+	enum Type {
+		E_UNKNOWN					= 0;
+		E_FILTER_CHANGED			= 13;
+		E_WAIT_MATCH_PROGRESS		= 14;
+		E_MATCH_CREATED				= 15;
+		E_MATCH_OUTCOME				= 18;
+		E_MATCH_ABANDONED			= 21;
+
+		E_MATCH_CONNECTED			= 23;
+		E_MATCH_OVER				= 24;
+
+		E_GAME_BEGIN				= 25;
+		E_GAME_INPUT				= 26;
+		E_GAME_OVER					= 27;
+
+		E_USER_CHECK_NETWORK		= 30;
+		E_USER_SESSION_CLOSED		= 31;
+
+		E_PING_TEST_COMPLETE		= 40;
+
+		E_LOBBY_JOIN				= 50;
+		E_LOBBY_LEAVE				= 51;
+		E_LOBBY_UPDATE				= 52;
+		E_LOBBY_MATCH_START			= 53;
+	}
+
+	// Unique ID for the event.
+	optional int64 event_id = 1;
+
+	// Type of the event.
+	optional Type type = 2 [default = E_UNKNOWN];
+
+	// Time the event was generated.
+	optional int64 timestamp_msec = 3;
+
+	// Event fields based on type.
+	optional FilterChangedEvent filter_changed = 13;
+	optional WaitMatchProgressEvent wait_match_progress = 14;
+	optional MatchCreatedEvent match_created = 15;
+	optional MatchOutcomeEvent match_outcome = 18;
+	optional MatchAbandonedEvent match_abandoned = 21;
+
+	optional MatchConnectedEvent match_connected = 23;
+	optional MatchOverEvent match_over = 24;
+
+	optional GameBeginEvent game_begin = 25;
+	optional GameInputEvent game_input = 26;
+	optional GameOverEvent game_over = 27;
+
+	optional UserCheckNetworkEvent user_check_network = 30;
+	optional UserSessionClosedEvent user_session_closed = 31;
+
+	optional PingTestCompleteEvent ping_test_complete = 40;
+
+	optional LobbyJoinEvent lobby_join = 50;
+	optional LobbyLeaveEvent lobby_leave = 51;
+	optional LobbyUpdateEvent lobby_update = 52;
+	optional LobbyMatchStartEvent lobby_match_start = 53;
+}
+
+// Wrapper for server-stored events.
+message QueuedEvent {
+	// The event queued for delivery.
+	optional Event event = 1;
+
+	// If set, only return the event if the requesting session matches this ID.
+	optional string restrict_session_id = 2;
+
+	// If set, discard the event after this time is reached.
+	optional int64 expiry_timestamp_msec = 3;
+}
+
+message GetEventRequest {
+	optional string version = 1;
+}
+
+message GetEventResult {
+	optional string version = 1;
+	repeated Event event = 2;
+}
+
+service EventService {
+	// Get any pending events matching the current filter,
+	// or wait for new events.
+	rpc GetEvent (GetEventRequest) returns (GetEventResult) {
+		option (tbrpc.access) = LOGIN;
+		option (tbrpc.no_op) = true;
+	}
+
+	// No-op ping method for client to (re-)establish connectivity.
+	rpc EventPing (tbrpc.Empty) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+		option (tbrpc.no_op) = true;
+	}
+}

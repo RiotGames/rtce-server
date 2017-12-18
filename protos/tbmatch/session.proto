@@ -1,0 +1,69 @@
+
+// Authentication and session management.
+
+package tbmatch;
+
+import "tbrpc/tbrpc.proto";
+
+
+enum GameType {
+	// Rising Thunder.
+	GT_RISING_THUNDER = 100;
+}
+
+message LoginRequest {
+	// Either handle or e-mail address can be used.
+	optional string login = 1;
+	optional string password = 2;
+
+	// Client build.  May require certain version to login.
+	optional string build_version = 5;
+
+	// Remote IP now passed via XFF header by TBFE
+	optional string __deprecated_remote_ip = 10;
+}
+
+message GetGameSessionTicketResult {
+	optional GameType game = 1;
+	optional string nonce = 2;
+}
+
+message RedeemGameSessionTicketRequest {
+	optional GameType game = 1;
+	optional string nonce = 2;
+
+	// Client build.  Server may require a certain version to login.
+	optional string build_version = 5;
+}
+
+message GetGameSessionTicketRequest {
+	optional GameType game = 1;
+
+	// Build number of the client.  If set, checks that the build is allowed.
+	optional string client_build_version = 2;
+}
+
+
+service SessionService {
+	// Establish an authenticated session.
+	rpc Login (LoginRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Get a ticket for the indicated game type.
+	// May only be granted if the corresponding game access bit is held by the user.
+	rpc GetGameSessionTicket(GetGameSessionTicketRequest) returns (GetGameSessionTicketResult) {
+		option (tbrpc.access) = LOGIN;
+	}
+
+	// Redeem a game session ticket.  The resulting session is distinct from the launcher
+	// session but enforced max one per account.
+	rpc RedeemGameSessionTicket(RedeemGameSessionTicketRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	// Invalidate session.
+    rpc Logout (tbrpc.Empty) returns (tbrpc.Empty) {
+		option (tbrpc.access) = LOGIN;
+	}
+}

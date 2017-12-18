@@ -1,0 +1,92 @@
+package tbadmin;
+
+import "tbrpc/tbrpc.proto";
+import "tbmatch/match.proto";
+
+message CrashBuildIdentifier {
+	optional string build_identifier = 1;
+	optional string app_name = 2;
+	optional string build_version = 3;
+}
+
+message CrashCollection {
+	optional string crash_identifier = 1;	// The top line of the stack trace, used as a unique identifier to group together the same types of crash.
+	optional string build_identifier = 2;
+	optional uint64 occurrences = 3;
+	optional uint64 users_affected = 4;		// The number of unique users affected by the crash. Less than num_occurrences if a crash happens to the same person more than once.
+	optional string stack_trace = 5;
+}
+
+message SymbolHeader {
+	optional string symbol_path = 1;		// The path on gcs
+	optional string app_name = 2;
+	optional string build_version = 3;
+	optional string symbol_directory = 4;	//The directory minidump_stackwalk will look for the symbol file in, retrieved from the first line of the sym file
+}
+
+message CrashReportHeader {
+	optional string report_path = 1;		// The path on gcs
+	optional int64 timestamp = 2;
+	optional string app_name = 3;
+	optional string build_version = 4;
+	optional string machine_id = 5;
+	optional string crash_number = 6;		// The crash number on a per-build version basis
+}
+
+message ListDesyncsRequest {
+	optional int32 offset = 1;
+	optional int32 limit = 2			[default = 200];
+}
+message ListDesyncsResult {
+	repeated tbmatch.DesyncReportHeader desync = 1;
+}
+
+message ListCrashesRequest {
+	optional int32 offset = 1;
+	optional int32 limit = 2			[default = 200];
+	optional string build_identifier = 3;
+	optional string crash_identifier = 4;
+}
+
+message ListCrashesResult {
+	optional CrashCollection collection = 1;
+	repeated CrashReportHeader reports = 2;
+}
+
+message ListCrashBuildIdentifiersRequest {
+	optional int32 offset = 1;
+	optional int32 limit = 2			[default = 200];
+}
+
+message ListCrashBuildIdentifiersResult {
+	repeated CrashBuildIdentifier identifiers = 1;
+}
+
+message ListCrashCollectionsRequest {
+	optional int32 offset = 1;
+	optional int32 limit = 2			[default = 200];
+	optional string build_identifier = 3;
+}
+
+message ListCrashCollectionsResult {
+	repeated CrashCollection collections = 1;
+}
+
+service FailReportService {
+
+	rpc ListDesyncs(ListDesyncsRequest) returns (ListDesyncsResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc ListCrashes(ListCrashesRequest) returns (ListCrashesResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc ListCrashBuildIdentifiers(ListCrashBuildIdentifiersRequest) returns (ListCrashBuildIdentifiersResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+
+	rpc ListCrashCollections(ListCrashCollectionsRequest) returns (ListCrashCollectionsResult) {
+		option (tbrpc.access) = STATS_READ;
+	}
+}

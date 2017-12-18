@@ -1,0 +1,730 @@
+// Matching service.
+//
+// Maintains a set of active rooms, each of which
+// hosts one fight at a time, between the last winner
+// and the longest waiting challenger.
+
+import "tbrpc/tbrpc.proto";
+
+package tbmatch;
+
+enum MatchType {
+	// Earn experience, but not ranking points.
+	MT_UNRANKED = 1;
+
+	// Earn experience, ranking points adjusted from outcome.
+	MT_RANKED = 2;
+
+	// Join elimination tournament.
+	MT_TOURNAMENT = 3;
+
+	// Custom lobby match.
+	MT_LOBBY = 4;
+}
+
+// Player-specific outcome enum of a complete match.
+enum MatchOutcome {
+	MO_WON = 1;
+	MO_LOST = 2;
+	MO_DISCONNECT = 3;
+}
+
+// Player-specific outcome enum of a particular game.
+enum GameOutcome {
+	GO_WON = 1;
+	GO_LOST = 2;
+	GO_DRAW = 3;
+}
+
+message FeatureValue {
+	// Feature's unique tag.
+	optional string tag = 1;
+
+	// Config value set for the feature, if any.
+	optional string value = 2;
+}
+
+// Which optional client features the server has instructed to enable.
+message ClientFeatureSet {
+	// List of enabled features and config values.
+	repeated FeatureValue feature = 1;
+}
+
+message NetworkAddr {
+	// Host name or IP address where the client or server can be reached.
+	optional string host_name = 1;
+
+	// UDP port on which the client will be listening for a match.
+	optional int32 port = 2;
+}
+
+// Definition of variants selected for a character's moves
+message VariantSpec {
+	// 4-element array for variant ids for special 1, 2, 3 and super
+	repeated int32 specials = 1;
+}
+
+// Definition of the character the user intends to play
+// in the next available match.
+message CharacterSpec {
+	// Type name of character, e.g. "atl"
+	optional string type_name = 1;
+
+	// Selected option for secondary meter (defensive or offensive)
+	optional int32 secondary_meter = 10;
+
+	// Special move variants selection
+	optional VariantSpec variants = 22;
+}
+
+
+// How the meter refills in training mode
+enum MeterRefillType {
+	// Same as in online mode
+	MRT_NORMAL = 1;
+
+	// Increase at constant rate
+	MRT_REFILL = 2;
+
+	// Max out on reset
+	MRT_MAX = 3;
+}
+
+// How the dummy opponent moves
+enum TrainingMovementType {
+	// Same as in online mode
+	TMT_STAND = 1;
+
+	// Increase at constant rate
+	TMT_CROUCH = 2;
+
+	// Max out on reset
+	TMT_JUMP = 3;
+
+	// Max out on reset
+	TMT_RECORD = 11;
+
+	// Max out on reset
+	TMT_PLAYBACK = 12;
+}
+
+
+// How the dummy opponent blocks
+enum TrainingBlockType {
+	// Same as in online mode
+	TBT_DONT = 1;
+
+	// Increase at constant rate
+	TBT_BLOCK = 2;
+
+	// Max out on reset
+	TBT_ALWAYS = 3;
+}
+
+// Training mode configurable options that are also part of GameConfig
+message TrainingGameOptions {
+   optional bool stun_enabled = 1;
+
+   optional MeterRefillType super_refill = 2;
+
+   optional MeterRefillType kinetic_refill = 3;
+
+   optional bool short_cooldowns = 4;
+
+   optional bool show_stats = 5;
+}
+
+// Training mode configurable options
+message TrainingDynamicOptions {
+
+   optional TrainingGameOptions training_options = 1;
+
+   repeated CharacterSpec characters = 4;
+
+   optional bool reset_level = 5;
+
+   optional TrainingMovementType opponent_movement = 20;
+
+   optional TrainingBlockType opponent_block = 21;
+}
+
+// A single chat stream event.
+message Chat {
+	// Unix time the chat was generated.
+	optional int64 time = 1;
+
+	// Handle of the originating player.  If unset,
+	// system-generated message.
+	optional string origin = 2;
+
+	// Chat text.
+	optional string text = 3;
+}
+
+message GameOptions {
+	enum Mode {
+		// Fight to the finish -- best of N games, etc.
+		GM_FIGHT = 1;
+
+		// No one dies -- client exit completes the match.
+		GM_TRAINING = 2;
+	}
+
+	optional Mode mode = 1		[default = GM_FIGHT];
+
+	// Stage etc.
+	optional TrainingGameOptions training_options = 20;
+}
+
+// Configuration for a single game in a match, suitable for sending
+// to one of the participating clients.
+message GameConfig {
+	message Player {
+		optional int64 user_id = 1;
+		optional string handle = 2;
+		optional CharacterSpec character = 3;
+
+		optional int32 echelon = 10;
+		optional int32 tier = 11;
+	}
+
+	// Each player's character info.
+	repeated Player player = 2;
+
+	// Global options for this game.
+	optional GameOptions options = 5;
+
+	// The server-assigned unique ID of the match.
+	optional int64 match_id = 3;
+
+	// deprecated
+	optional int32 __deprecated_game_number = 4;
+}
+
+// Configuration for the next game in a match, allowing for users to
+// change their character specs.
+message NextGameConfig {
+	// The new character specs to use for the next game.
+	repeated CharacterSpec character_spec = 1;
+
+	// Proposed game options for the next game.
+	// May only be specified during a training match.
+	optional GameOptions options = 2;
+}
+
+// Connection information for one of the players.
+message GameEndpointConfig {
+	// Which player slot to control (0 = one, 1 = two)
+	optional int32 slot = 1;
+
+	// Server address.
+	optional NetworkAddr server = 2;
+
+	// 64-bit secret to gain access to the match.
+	optional fixed64 secret = 3;
+
+	// Ping threshold for the handshake between peers.
+	optional float ping_score_threshold = 4;
+
+	// The 128-bit shared key used to hash client packets
+	optional bytes shared_key = 5;
+}
+
+// Server-side record of the game in progress.
+message GameDescriptor {
+	// Game being played.
+	optional GameConfig game = 1;
+
+	enum Source {
+		// Match by blind-queue rating match-maker.
+		MATCH_MAKER = 1;
+
+		// Matched by user lobby.
+		LOBBY = 2;
+	}
+	optional Source source = 8;
+
+	message Player {
+		// GameEndpointConfig player is using to connect to Portal.
+		optional GameEndpointConfig endpoint = 1;
+
+		// Remote IP of the player.
+		optional string remote_ip = 2;
+
+		// Rating used to create the match.
+		optional float rating = 3;
+
+		// How long waiting in the match queue, in seconds.
+		optional float wait_time = 5;
+		// The ping score to the opponent in the match. 0 if no existing ping score.
+		optional float ping_score = 6;
+
+		// Ranking values used to make the match.
+		optional int32 echelon = 10;
+		optional int32 tier = 11;
+		optional int32 points = 12;
+	}
+
+	// Extra details for each player slot.
+	repeated Player player = 7;
+
+	// Portal session in use.
+	optional bytes portal_uuid = 3;
+
+	// For source == MATCH_MAKER, queue this match was generated by.
+	// MT_LOBBY indicates a lobby match.
+	optional MatchType type = 4;
+
+	// Build version of the matched clients.
+	optional string build_version = 5;
+
+	// For source == LOBBY, lobby ID of the owning lobby.
+	optional int64 lobby_id = 9;
+
+	repeated GameEndpointConfig __deprecated_endpoint = 2;
+	repeated string __deprecated_remote_ip = 6;
+}
+
+message PingTestResult {
+	// Server to use for an immediate latency test.
+	optional GameEndpointConfig config = 1;
+}
+
+message DesyncReportRequest {
+	optional int64 match_id = 2;
+	optional int32 slot = 3;
+	optional bytes bundle = 4;
+}
+
+// Internal-only type for tracking pending desyncs.
+message DesyncReportHeader {
+	optional int64 match_id = 1;
+	optional int32 slot = 2;
+	optional string report_path = 3;
+	optional GameConfig game_config = 4;
+	optional int64 timestamp = 5;
+	optional string build_version = 6;
+}
+
+// The InputRecord is a serialized version of both player's inputs
+message InputRecord {
+	// Input record blob. Engine knows how to decode it.
+	optional bytes input_record = 1;
+}
+
+// The GameReplayRecord allows us to replay the game.
+message GameReplayRecord {
+	// Initial config
+	optional GameConfig config = 1;	
+
+	// P1 and P2 inputs for all the frames that matter (between GGPO Ready and confirmed last hit)
+	optional InputRecord input_record = 2;
+
+	// Game number
+	optional int32 game_number = 3;
+}
+
+message RollbackInfo {
+	// The frame before the rollback
+	optional int32 old_frame = 1;
+
+	// The frame to roll back to
+	optional int32 rollback_frame = 2;
+}
+
+message RollbackInputRecord {
+	// Both players inputs, including for frames that we later rolled back from.
+	optional InputRecord input = 1;
+
+	// Information about rollbacks
+	repeated RollbackInfo rollback_data = 2;
+}
+
+// Rollbacks count, so P1 and P2 need their own
+// RollbackInputRecord since their rollback histories are different.
+message RollbackReplayRecord {
+	// Initial config for each game in a match
+	repeated GameConfig config = 1;
+
+	// P1 and P2's inputs with rollbacks.
+	repeated RollbackInputRecord rollback_record = 2;
+}
+
+// Self-estimate of user's familiarity with/skills at fighting games.
+enum SkillEstimateType {
+	SET_NONE = 0;
+
+	SET_BEGINNER = 1;
+
+	SET_INTERMEDIATE = 2;
+
+	SET_ADVANCED = 3;
+
+	SET_THUNDEROUS = 4;
+}
+
+message GetMatchRequest {
+	// Type of match requested.
+	optional MatchType type = 1;
+
+	// If MT_TOURNAMENT, arena ID.
+	optional int64 arena_id = 2;
+
+	// Client's claimed network address.
+	optional NetworkAddr network = 10;
+
+	// Client's desired character loadout for the match.
+	optional CharacterSpec character = 11;
+
+	// Client's approximation of their skill. Only taken into account
+	// after first login/first match.
+	optional SkillEstimateType skill_estimate = 15;
+}
+
+// The GameReport is serialized in the Goodbye packet send to portal
+// immediately upon determination of the game outcome.
+// Iff both players sent the same GameReport, the game outcome is considered valid
+// and the match will proceed.
+// The serialized size of this proto should not exceed PORTAL_MAX_OUTCOME_SIZE.
+message GameReport {
+	// Player slot (0, 1) that won the match.
+	optional int32 win_slot = 1  [default = -1];
+
+	// Was match a draw?
+	optional bool draw = 2;
+}
+
+// The report sent from portal to TBMatch to record information about a game.
+// It's a superset of GameReport
+message PortalGameReport {
+	optional GameReport game_report = 1;
+
+	optional int64 start_time = 2;
+
+	optional int64 end_time = 3;
+
+	optional NextGameConfig game_config = 4;
+}
+
+// The MatchReport is sent from portal to TBMatch.
+message MatchReport {
+	// Did the players have the same reported results?
+	optional bool players_agree = 1;
+
+    // Player slot (0, 1) that won the match.
+	optional int32 win_slot = 2 [default = -1];
+
+	// Was match a draw?
+	optional bool draw = 3;
+
+	// The game reports for the individual games
+	repeated PortalGameReport game_report = 4;
+}
+
+message GetGameReplayRecordRequest {
+	// Match to fetch replay for.
+	optional int64 match_id = 1;
+	// Game number of the replay.
+	optional int32 game_number = 2;
+}
+
+message GetGameReplayRecordResult {
+	optional GameReplayRecord record = 1;
+}
+
+
+// ************* Player stats & experience ***************
+
+message CharacterStats {
+	// Type name of the game character.
+	optional string type_name = 1;
+
+	// Experience level.
+	optional int32 xp_level = 2;
+
+	// Total experience points.
+	optional int32 xp = 3;
+
+	// Total wins & losses.
+	optional int32 wins = 4;
+	optional int32 losses = 5;
+
+	// Total experience point thresholds for the current and subsequent levels.
+	repeated int32 level_xp_min = 6;
+}
+
+message PlayerStats {
+	// Experience level.
+	optional int32 xp_level = 1;
+
+	// Total experience points.
+	optional int32 xp = 2;
+
+	// Total wins & losses.
+	optional int32 wins = 3;
+	optional int32 losses = 4;
+
+	// Stats for each character.  Any not present
+	// are assumed to be level 1 with 0 exp.
+	repeated CharacterStats char_stats = 5;
+
+	// Total experience point thresholds for the current and subsequent levels.
+	repeated int32 level_xp_min = 6;
+
+	// Number of consecutive wins.
+	optional int32 win_streak = 10;
+
+	// Echelon index (0=Carbon, etc.)  Display: "msg.rank.echelon.%d"
+	optional int32 echelon = 20;
+	// Tier index within echelon (0=I, 1=II, etc.)  Display: "msg.rank.tier.%d"
+	optional int32 tier = 21;
+	// Points within tier.
+	optional int32 points = 22;
+	// Number of points required before next tier can be reached.
+	optional int32 tier_max_points = 23;
+
+	// Player's standing in the echelon (only valid for highest echelon)
+	optional int32 ranked_standing = 24;
+}
+
+message PlayerPreferences {
+	// The last character the player selected
+	optional string selected_char = 1;
+
+   // Serialized tbui LocalPlayerPreferences proto for local information that the server
+   // doesn't care about.
+	optional bytes local_player_prefs = 2;
+
+	// Character-specific preferences
+	repeated CharacterSpec char_prefs = 10;
+}
+
+message UpdatePlayerPreferencesRequest {
+	// New preferences. If setting character preferences, set the entire state (spec and all variants).
+	optional PlayerPreferences updated_prefs = 1;
+}
+
+// Outcome of a game within a match.
+message GameResult {
+	// Match ID.
+	optional int64 match_id = 1;
+
+	// Game number in the match.
+	optional int32 game_number = 2;
+
+	// Resolution of the game.
+	optional GameOutcome outcome = 3;
+
+	// Number of games in the match each player slot has won.
+	repeated int32 slot_wins = 5;
+
+	// Game duration in seconds.
+	optional int32 duration_secs = 6;
+}
+
+message MatchResult {
+	// Match ID.
+	optional int64 match_id = 1;
+
+	// Type of match played.
+	optional MatchType type = 2;
+
+	// Character played.
+	optional string character_type_name = 3;
+
+	// Won or lost?
+	optional MatchOutcome outcome = 4;
+
+	// True if we won because the opponent disconnected.
+	optional bool peer_disconnect = 5;
+
+	// Match start time (RFC3339 string).
+	optional string start_time = 6;
+
+	// Match duration in seconds.
+	optional int32 duration_secs = 7;
+
+	// Number of games played and won.
+	optional int32 game_count = 8;
+	optional int32 games_won = 9;
+
+	// Opponent.
+	optional string opponent_character_type_name = 20;
+	optional int64 opponent_user_id = 21;
+	optional string opponent_handle = 22;
+
+	// Deprecated fields.
+	optional bool __deprecated_has_replay = 30;
+}
+
+message MatchExperience {
+	// Starting player total XP.
+	optional int32 player_xp = 10;
+
+	// Starting player level.
+	optional int32 player_level = 11;
+
+	// Experience thresholds for current player level (index 0),
+	// plus a few more in case the player levels up.
+	repeated int32 player_level_xp_min = 12;
+
+	// XP earned from the match.
+	optional int32 player_match_xp = 21;
+	// XP bonus for winning.
+	optional int32 player_win_bonus_xp = 22;
+	// Optional XP boost.
+	optional int32 player_boost_xp = 23;
+
+	// Original character XP.
+	optional int32 character_start_xp = 30;
+	// XP earned by character from the match.
+	optional int32 character_match_xp = 31;
+	// Character XP bonus for winning.
+	optional int32 character_win_bonus_xp = 32;
+	// Optional character XP boost.
+	optional int32 character_boost_xp = 33;
+	// Starting character level.
+	optional int32 character_level = 35;
+
+	// Experience thresholds for current character level (index 0),
+	// plus a few more in case the character levels up.
+	repeated int32 character_level_xp_min = 34;
+
+	// Ranking tier points awarded. Could be 0 or negative.
+	optional int32 rank_points = 40;
+}
+
+// Information about a previously played game.
+message GameRecord {
+	optional int64 match_id = 1;
+	optional int32 game_number = 2;
+
+	// Type of match the game belonged to.
+	optional MatchType type = 3;
+
+	// Match start conditions.
+	optional GameConfig config = 4;
+
+	// Which slot won the match.
+	optional int32 win_slot = 5;
+
+	// Game start time (RFC3339 string).
+	optional string start_time = 6;
+
+	// Game duration in seconds.
+	optional int32 duration_secs = 7;
+
+	// Is replay data available?
+	optional bool has_replay = 10;
+}
+
+message GetPlayerStatsResult {
+	optional PlayerStats stats = 1;
+}
+
+message GetRecentGamesResult {
+	repeated GameRecord game = 1;
+}
+
+// Everything the RT client needs at startup.
+message GameProfile {
+	optional int64 account_id = 1;
+	optional string handle = 2;
+	optional string given_name = 3;
+	optional string locale = 4;
+
+	// Player and character experience
+	optional PlayerStats stats = 10;
+
+	// Saved preferences for the player
+	optional PlayerPreferences player_prefs = 13;
+
+	// Server capabilities enabled for this session.
+	optional ClientFeatureSet feature_set = 20;
+}
+
+message ResetGameRequest {
+	// The in-progress match to reset.
+	optional int64 match_id = 1;
+
+	// The new character spec to use for the next game.
+	optional CharacterSpec character_spec = 2;
+
+	// Proposed training game options for the next game.
+	optional TrainingGameOptions training_options = 3;
+}
+
+service MatchService {
+
+	// Get the full GameProfile to bootstrap after a successful login.
+	rpc GetGameProfile (tbrpc.Empty) returns (GameProfile) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	// *********** Random-queue matching API *************
+
+	// Request a server ping test.  This must be done before queuing for a match,
+	// and every so often afterward.  Returns a server and port awaiting
+	// a brief ping test session.
+	rpc PingTest (tbrpc.Empty) returns (PingTestResult) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+	
+	// Request to be matched with another player.
+	rpc GetMatch (GetMatchRequest) returns (tbrpc.Empty) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	// Request to be matched with another player; attempt to resume old spot in
+	// match queue.
+	rpc ResumeGetMatch (tbrpc.Empty) returns (tbrpc.Empty) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+
+	// Cancel an outstanding match request.
+	rpc CancelGetMatch (tbrpc.Empty) returns (tbrpc.Empty) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	// Resets the character layout of a training match in progress.
+	// If successful, results in a GameOverEvent, GameBeginEvent
+	// with the requested GameOptions and updated character for the given slot.
+	rpc ResetGame (ResetGameRequest) returns (tbrpc.Empty) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	// Fetch saved replay data for a given game that the calling player participated in.
+	// Old games may be not be available after a while.
+	rpc GetGameReplayRecord(GetGameReplayRecordRequest) returns (GetGameReplayRecordResult) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	// Report a desync.
+	rpc DesyncReport (DesyncReportRequest) returns (tbrpc.Empty) {
+		option (tbrpc.access) = ANON;
+	}
+
+	rpc UpdatePlayerPreferences (UpdatePlayerPreferencesRequest) returns (tbrpc.Empty) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	rpc GetPlayerStats (tbrpc.Empty) returns (GetPlayerStatsResult) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+
+	rpc GetRecentGames (tbrpc.Empty) returns (GetRecentGamesResult) {
+		option (tbrpc.session) = GAME_RT;
+		option (tbrpc.access) = MATCH;
+	}
+}
+

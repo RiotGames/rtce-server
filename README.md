@@ -1,2 +1,3 @@
-# rtce-server
-Rising Thunder Community Edition server 
+# Rising Thunder Community Editon
+Open Rising Thunder open server implementation
+
