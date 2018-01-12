@@ -570,6 +570,12 @@ class GameSession(object):
         matchOverEvent.match_over.win_slot = channel.last_game_report.win_slot
         matchOverEvent.match_over.draw = channel.last_game_report.draw
         channel.user.SendEvent(matchOverEvent)
+
+    def SendMatchAbandoned(self, channel):
+        matchAbandonedEvent = tbmatch.event_pb2.Event()
+        matchAbandonedEvent.type = tbmatch.event_pb2.Event.E_MATCH_ABANDONED
+        matchAbandonedEvent.match_abandoned.match_id = self.match_id
+        channel.user.SendEvent(matchAbandonedEvent)
         
     def ExitGame(self):
         self.successful_match = True
@@ -648,6 +654,9 @@ class GameSession(object):
             self.send_handshake_reply_timer = None
         
     def NotifyTimeout(self, reason):
+        self.Log('sending abandoned event to players')
+        self.SendMatchAbandoned(self.p1)
+        self.SendMatchAbandoned(self.p2)
         pass
 
     def SendVariantChangeReplyCb(self):
