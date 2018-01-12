@@ -170,14 +170,14 @@ class TimerStore(object):
         self.timers = {}
 
 class GameChannel(SocketServer):
-    def __init__(self, session, portal, player, handle, client_spec):
-        SocketServer.__init__(self, portal, 'chan %s %s' % (player, handle))
+    def __init__(self, session, portal, slot, user, client_spec):
+        SocketServer.__init__(self, portal, 'chan %s %s' % (slot, user.handle))
         self.session = session
         self.client_spec = client_spec
         self.character_spec = tbmatch.match_pb2.CharacterSpec()
         self.character_spec.CopyFrom(client_spec.character)
-        self.player = player
-        self.handle = handle
+        self.slot = slot
+        self.user = user
         self.connected = False
         self.active = False
         self.got_new_variants = False
@@ -343,7 +343,7 @@ class GameChannel(SocketServer):
             return GOODBYE_INVALID
 
         if self.last_game_report.win_slot in [0, 1]:
-            slot = 0 if self.player == 'p1' else 1
+            slot = 0 if self.slot == 'p1' else 1
             if self.last_game_report.win_slot == slot:
                 self.claimed_wins += 1
             else:
@@ -374,7 +374,7 @@ class GameChannel(SocketServer):
                self.claimed_draws == other.claimed_draws
 
 class GameSession(object):
-    def __init__(self, portal, game_session, p1handle, p2handle):
+    def __init__(self, portal, game_session, game_config, p1, p2):
         self.state = STATE_INIT
         self.handshake_reply_count = 0
         self.variant_change_reply_count = 0
@@ -382,14 +382,15 @@ class GameSession(object):
         self.send_variant_change_reply_timer = None
         self.match_report = tbmatch.match_pb2.MatchReport()
         self.next_game_config = None
-        self.resolution = None
+        self.successful_match = False
+        self.match_id = game_config.match_id
         self.timers = TimerStore(lambda s: self.Log(s))
-        self.p1 = GameChannel(self, portal, 'p1', p1handle, game_session.spec[0])
-        self.p2 = GameChannel(self, portal, 'p2', p2handle, game_session.spec[1])
+        self.p1 = GameChannel(self, portal, 'p1', p1, game_session.spec[0])
+        self.p2 = GameChannel(self, portal, 'p2', p2, game_session.spec[1])
         self.TransitionToState(STATE_HANDSHAKE)
 
     def Log(self, s):
-        logging.debug('[session %s vs %s] %s' % (self.p1.handle, self.p2.handle, s))
+        logging.debug('[session %s vs %s] %s' % (self.p1.user.handle, self.p2.user.handle, s))
 
     def Close(self):
         assert self.state != STATE_CLOSED
@@ -407,7 +408,7 @@ class GameSession(object):
             other_channel = self.p1
             
         if msg not in THROTTLE_MSG_LOGS:
-            self.Log('received {0} msg in state {1} from {2}'.format(MSGS.get(msg, str(msg)), self.state, recv_channel.player))
+            self.Log('received {0} msg in state {1} from {2}'.format(MSGS.get(msg, str(msg)), self.state, recv_channel.slot))
 
         if self.state == STATE_HANDSHAKE:
             if recv_channel.IsConnected():
@@ -475,7 +476,7 @@ class GameSession(object):
             elif msg == MSG_VARIANT_CHANGE_REQUEST:
                 if recv_channel.ValidateVariantChange(payload):
                     if not other_channel.got_new_variants:
-                        self.Log('got new variants for {0}.  waiting for {1}.'.format(recv_channel.player, other_channel.player))
+                        self.Log('got new variants for {0}.  waiting for {1}.'.format(recv_channel.slot, other_channel.slot))
                     else:
                         self.Log('got new variants for both players. launching game.')
                         self.VariantsChangeTimeoutCb()
@@ -503,8 +504,10 @@ class GameSession(object):
                 self.ExitGame()
             else:
                 self.TransitionToState(STATE_CLOSING)
+            self.SendGameOver(recv_channel)
+            self.SendMatchOver(recv_channel)
         elif result == GOODBYE_GAME_OVER:
-            self.Log('game complete for channel {0}.  waiting for {1}'.format(recv_channel.handle, other_channel.handle))
+            self.Log('game complete for channel {0}.  waiting for {1}'.format(recv_channel.user.handle, other_channel.user.handle))
             if other_channel.need_another_game:
                 if self.AddGameToMatchRecord():
                     self.Log('game complete, need another game, transitioning to game pending')
@@ -513,6 +516,7 @@ class GameSession(object):
                     self.ExitGame()
             else:
                 self.timers.Start('goodbye', 'goodbye_timeout_ms', lambda: self.GoodbyeTimeoutCb())
+            self.SendGameOver(recv_channel)
 
     def HandleGoodbyeInClosing(self, recv_channel, other_channel, payload):
         if recv_channel.GetClaimedFinished() > other_channel.GetClaimedFinished():
@@ -527,18 +531,21 @@ class GameSession(object):
                 self.match_report.draw = self.p1.claimed_wins == self.p1.claimed_wins
                 self.match_report.win_slot = self.p1.claimed_wins > self.p1.claimed_wins and 0 or 1
                 self.match_report.players_agree = True
-            
+            self.SendGameOver(recv_channel)
         elif result == GOODBYE_GAME_OVER:
             # One player said match over, the other said game over.
             self.match_report.players_agree = False
+
+        self.SendMatchOver(recv_channel)
         self.ExitGame()
 
     def AddGameToMatchRecord(self):
         self.finished_games += 1
         self.Log('finished {0} games.'.format(self.finished_games))
         if self.p1.CompareClaims(self.p2) and self.finished_games == self.p1.GetClaimedFinished():
-            # now would be a good time to notify some observer...
+            # now would be a good time to notify some observer or adjust elo or whatever.
             self.Log('players agree on match outcome')
+            self.match_report.players_agree = True
             return True
 
         self.Log('players disagree on match outcome. p1:{0}/{1}/{2} p2:{3}/{4}/{5}'.format(
@@ -548,8 +555,24 @@ class GameSession(object):
         self.match_report.players_agree = False
         return False
 
+    def SendGameOver(self, channel):
+        gameOverEvent = tbmatch.event_pb2.Event()
+        gameOverEvent.type = tbmatch.event_pb2.Event.E_GAME_OVER
+        gameOverEvent.game_over.match_id = self.match_id
+        gameOverEvent.game_over.report.CopyFrom(channel.last_game_report)
+        channel.user.SendEvent(gameOverEvent)
+        
+    def SendMatchOver(self, channel):
+        matchOverEvent = tbmatch.event_pb2.Event()
+        matchOverEvent.type = tbmatch.event_pb2.Event.E_MATCH_OVER
+        matchOverEvent.match_over.status = tbmatch.event_pb2.MatchOverEvent.VALID
+        matchOverEvent.match_over.match_id = self.match_id
+        matchOverEvent.match_over.win_slot = channel.last_game_report.win_slot
+        matchOverEvent.match_over.draw = channel.last_game_report.draw
+        channel.user.SendEvent(matchOverEvent)
+        
     def ExitGame(self):
-        self.resolution = tbportal.portal_pb2.GameSessionReport.GOODBYE
+        self.successful_match = True
         self.TransitionToState(STATE_TIMED_OUT)
 
     def TransitionToState(self, state):
@@ -583,7 +606,7 @@ class GameSession(object):
             # set timeout for other goodbye packet
             pass
         elif self.state == STATE_TIMED_OUT:
-            if self.resolution == tbportal.portal_pb2.GameSessionReport.GOODBYE:                
+            if self.successful_match:
                 # wait a few seconds to catch any lingering input reports
                 self.timers.Start('linger', 'input_linger_timeout_ms', lambda: self.Close)
             else:
@@ -741,8 +764,8 @@ class Portal(object):
         self.AddSocketServer(p)
         return p
 
-    def StartGameSession(self, game_session, p1handle, p2handle):
-        s = GameSession(self, game_session, p1handle, p2handle)
+    def StartGameSession(self, game_session, game_config, p1, p2):
+        s = GameSession(self, game_session, game_config, p1, p2)
         return s.p1.port, s.p2.port
 
     def AddSocketServer(self, server):

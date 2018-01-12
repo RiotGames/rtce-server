@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Stormwind",
+            "name": "Rising Thunder CE",
             "type": "python",
             "request": "launch",
             "stopOnEntry": false,

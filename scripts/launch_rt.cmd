@@ -4,5 +4,5 @@
 :: Assumes you have a copy of RT in ..\Rising Thunder
 
 set tb.gameinst=ServerUri=http://localhost:1337/_01/
-"..\Rising Thunder\RadiantGames\Rising Thunder\WindowsNoEditor\RisingThunder\Binaries\Win64\RisingThunder-Win64-Shipping.exe"
+start "..\RisingThunder\RisingThunder.exe"
 

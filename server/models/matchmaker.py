@@ -65,7 +65,7 @@ class Matchmaker(object):
             game_config = server.models.match.CreateGameConfig(match_id, p1.user, p1.gameplay_options.character, p2.user, p2.gameplay_options.character)
 
             game_session = server.models.match.CreateGameSessionRequest(p1.gameplay_options.character, p2.gameplay_options.character)
-            p1port, p2port = server.portal.StartGameSession(game_session, p1.user.handle, p2.user.handle)
+            p1port, p2port = server.portal.StartGameSession(game_session, game_config, p1.user, p2.user)
 
             game_endpoint_config1 = server.models.match.CreateGameEndpointConfig(0, p1port, game_session.spec[0].secret)
             game_endpoint_config2 = server.models.match.CreateGameEndpointConfig(1, p2port, game_session.spec[1].secret)

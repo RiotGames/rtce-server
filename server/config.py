@@ -25,6 +25,7 @@ portal_ping_count = 5
 game_session_ticket_wait_interval_ms = 0.25
 
 game_session_config = tbportal.portal_pb2.GameSessionConfig()
+game_session_config.games_to_win = 2
 game_session_config.handshake_reply_interval_ms = 2000
 
 # Enabled features.
