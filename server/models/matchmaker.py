@@ -50,7 +50,7 @@ class Matchmaker(object):
         self.poll_timer.start()
 
     def Poll(self):
-        logging.debug('running matchmaker poll')
+        logging.debug('running matchmaker poll (%d users)', len(self.queue_users))
 
         while len(self.queue_users) >= 2:
             p1 = self.queue_users.pop()
