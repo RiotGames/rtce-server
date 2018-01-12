@@ -82,3 +82,10 @@ class Users(object):
         logging.debug('creating new user session with key {0}.'.format(session_key))
         handler.set_cookie('session', session_key)
         self.users[session_key] = User()
+
+    def DestroySession(self, handler):
+        session_key = handler.get_cookie('session')
+        if session_key:
+            user = self.users[session_key]
+            logging.debug('destroying session for {0} {1}.'.format(session_key, user.handle))
+            del self.users[session_key]

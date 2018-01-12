@@ -8,7 +8,7 @@ def Login(request, response, handler):
     
 @server.rpc.HandleRpc('Logout')
 def Logout(request, response, handler):
-    pass
+    server.users.DestroySession(handler)
        
 @server.rpc.HandleRpc('GetGameSessionTicket')
 def GetGameSessionTicket(request, response, handler):
