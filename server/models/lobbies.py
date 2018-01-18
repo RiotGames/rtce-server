@@ -159,7 +159,7 @@ class Lobby(object):
         game_config = server.models.match.CreateGameConfig(match_id, p1.user, p1.character, p2.user, p2.character)
 
         game_session = server.models.match.CreateGameSessionRequest(p1.character, p2.character)
-        p1port, p2port = server.portal.StartGameSession(game_session, game_config, p1, p2)
+        p1port, p2port = server.portal.StartGameSession(game_session, game_config, p1.user, p2.user)
 
         game_endpoint_config1 = server.models.match.CreateGameEndpointConfig(0, p1port, game_session.spec[0].secret)
         game_endpoint_config2 = server.models.match.CreateGameEndpointConfig(1, p2port, game_session.spec[1].secret)
