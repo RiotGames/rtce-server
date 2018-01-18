@@ -179,7 +179,7 @@ class GameChannel(SocketServer):
         self.slot = slot
         self.user = user
         self.connected = False
-        self.active = False
+        self.active = True
         self.got_new_variants = False
         self.need_another_game = False
         self.handshake_random = None
@@ -229,7 +229,6 @@ class GameChannel(SocketServer):
         self.local_port = local_port
         self.local_address = (la1, la2, la3, la4)
         self.connected = True
-        self.active = True
         return True
 
     def AwaitHandshakeReport(self):
@@ -275,8 +274,9 @@ class GameChannel(SocketServer):
         if is_game_packet:
             self.game_recv_count += 1
 
-        self.StopInactiveTimeout()
-        self.StartInactiveTimeout()
+        if self.active:
+            self.StopInactiveTimeout()
+            self.StartInactiveTimeout()
 
     def ValidateVariantChange(self, payload):
         assert self.need_another_game
@@ -308,7 +308,7 @@ class GameChannel(SocketServer):
         self.StartInactiveTimeout()
 
     def StartInactiveTimeout(self):
-        if not self.inactive_timeout_timer:
+        if self.active and not self.inactive_timeout_timer:
             timeout_ms = server.config.game_session_config.handshake_reply_interval_ms
             self.inactive_timeout_timer = server.ioloop.add_timeout(datetime.timedelta(milliseconds=timeout_ms), lambda: self.InactiveTimeoutCb())
             
@@ -319,7 +319,6 @@ class GameChannel(SocketServer):
             
     def InactiveTimeoutCb(self):
         self.Log('inactive timeout fired')
-        self.active = False
         self.session.NotifyTimeout(INACTIVE_DISCONNECT)
 
     def AddProgressReport(self, frame_count, ping_ms, max_ping_ms, min_ping_ms, fps):
@@ -332,6 +331,10 @@ class GameChannel(SocketServer):
     def ValidateGoodBye(self, payload):
         assert self.connected
         assert not self.need_another_game
+
+        # channel going away.  stop checking for inactivity.
+        self.active = False
+        self.StopInactiveTimeout()
 
         # Reset since we're not in variant change state
         self.got_new_variants = False
