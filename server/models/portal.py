@@ -217,7 +217,7 @@ class GameChannel(SocketServer):
             self.Log('not a handshake request')
             return False
 
-        secret, random_request, mapped_port, la1, la2, la3, la4, local_port = struct.unpack('<QLHLLLLH', payload)
+        secret, random_request, mapped_port, la1, la2, la3, la4, local_port = struct.unpack('<QIHIIIIH', payload)
         if secret != self.client_spec.secret:
             self.Log('bad secret 0x%08x needed 0x%08x' % (secret, self.client_spec.secret))
             return False
@@ -237,13 +237,10 @@ class GameChannel(SocketServer):
     def SendHandshakeReply(self, peer):
         peer_addr, peer_port = peer.sender
         packed_ip = socket.inet_aton(peer_addr)
-        peer_addr_int = struct.unpack("!L", packed_ip)[0]
+        peer_addr_int = struct.unpack("!I", packed_ip)[0]
+        peer_addr_int = peer_addr_int ^ 0xffffffff  # why did we do this to ourselves?
 
-        self.Log('peer internet addr 0x%08x' % peer_addr_int)
-        peer_addr_int = socket.htonl(peer_addr_int)
-        peer_port = socket.htons(peer_port)
-
-        payload = struct.pack('LLLHHLLLLH',
+        payload = struct.pack('IIIHHIIIIH',
             self.handshake_random,
             peer.handshake_random,
             peer_addr_int,
@@ -452,7 +449,7 @@ class GameSession(object):
                 self.HandleInput(recv_channel, payload)
                 return
             elif msg == MSG_GAME_PROGRESS_REPORT:
-                frame_count, ping_ms, max_ping_ms, min_ping_ms, fps = struct.unpack('LHHHH', payload)
+                frame_count, ping_ms, max_ping_ms, min_ping_ms, fps = struct.unpack('IHHHH', payload)
                 recv_channel.AddProgressReport(frame_count, ping_ms, max_ping_ms, min_ping_ms, fps)
                 return
             elif msg == MSG_GOODBYE:                
