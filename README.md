@@ -22,6 +22,6 @@ tests - Some automated tests, using the pytest framework.
 
 * **tb** - The prefix we used to namespace Rising Thunder code during development.  Everywhere you see "tb" you can think "rt" and be pretty safe (e.g. tbrpc describes the RT RPC layer).  What tb stands for remains a mystery.
 * **rpc** - Most of the non-game functionality of the server is implemented with an RPC layer over HTTP built using Google Protocol Buffers.  Whenever the code refers to RPCs, it's talking about that.
-* **portal** - Most of the game-dependant functionality of the server.  The portal is a UDP server which facilates game creation, spectating, detecting disconnected players, and implements the state machine required to implement RT's 2/3 games per-match flow.  Its implementation is greatly complicated by the fact that UDP is a lossy protocol.  Much of the state machine should probably have been implemented with RPCs, but c'est la' vie.
+* **portal** - Most of the game-dependant functionality of the server.  The portal is a UDP server which facilitates game creation, spectating, detecting disconnected players, and implements the state machine required to implement RT's 2/3 games per-match flow.  Its implementation is greatly complicated by the fact that UDP is a lossy protocol.  Much of the state machine should probably have been implemented with RPCs, but c'est la' vie.
 
 
