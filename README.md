@@ -1,11 +1,11 @@
-# Rising Thunder Community Editon
+# Rising Thunder Community Edition
 Open Rising Thunder open server implementation
 
 ## Getting Started
 
 This should get you going:
  1. Install the latest version of Python 2.x
- 2. Install the following dependecies: tornado, grpc, protobuf.  I prefer to use pip (i.e. `pip install tornado, grpc, protobuf`), but whatever floats your boat.
+ 2. Install the following dependencies: tornado, grpc, protobuf.  I prefer to use pip (i.e. `pip install tornado, grpc, protobuf`), but whatever floats your boat.
  3. Run the server via `python rtd.py`
 
 ## Guided Tour
